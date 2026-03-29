@@ -59,10 +59,10 @@ export function PortfolioChart() {
               <Line
                 type="monotone"
                 dataKey="price"
-                stroke="hsl(var(--primary))"
+                stroke="#22c55e"
                 strokeWidth={2}
-                dot={{ fill: "hsl(var(--primary))", strokeWidth: 0, r: 4 }}
-                activeDot={{ fill: "hsl(var(--primary))", strokeWidth: 0, r: 6 }}
+                dot={{ fill: "#22c55e", strokeWidth: 0, r: 4 }}
+                activeDot={{ fill: "#22c55e", strokeWidth: 0, r: 6 }}
               />
             </LineChart>
           </ResponsiveContainer>

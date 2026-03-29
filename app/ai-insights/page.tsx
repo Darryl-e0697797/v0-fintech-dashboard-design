@@ -149,8 +149,8 @@ export default function AIInsightsPage() {
                   <Radar
                     name="Score"
                     dataKey="value"
-                    stroke="hsl(var(--primary))"
-                    fill="hsl(var(--primary))"
+                    stroke="#22c55e"
+                    fill="#22c55e"
                     fillOpacity={0.3}
                     strokeWidth={2}
                   />
@@ -197,8 +197,8 @@ export default function AIInsightsPage() {
                   <Area
                     type="monotone"
                     dataKey="predicted"
-                    stroke="hsl(var(--primary))"
-                    fill="hsl(var(--primary))"
+                    stroke="#22c55e"
+                    fill="#22c55e"
                     fillOpacity={0.2}
                     strokeWidth={2}
                     strokeDasharray="5 5"
@@ -207,8 +207,8 @@ export default function AIInsightsPage() {
                   <Area
                     type="monotone"
                     dataKey="actual"
-                    stroke="hsl(var(--chart-2))"
-                    fill="hsl(var(--chart-2))"
+                    stroke="#3b82f6"
+                    fill="#3b82f6"
                     fillOpacity={0.3}
                     strokeWidth={2}
                     name="Actual"

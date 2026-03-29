@@ -190,9 +190,9 @@ export default function ESGInsightsPage() {
                   <Line
                     type="monotone"
                     dataKey="carbon"
-                    stroke="hsl(var(--primary))"
+                    stroke="#22c55e"
                     strokeWidth={2}
-                    dot={{ fill: "hsl(var(--primary))", strokeWidth: 0, r: 4 }}
+                    dot={{ fill: "#22c55e", strokeWidth: 0, r: 4 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -240,7 +240,7 @@ export default function ESGInsightsPage() {
                   />
                   <Bar 
                     dataKey="usage" 
-                    fill="hsl(var(--primary))" 
+                    fill="#22c55e" 
                     radius={[0, 4, 4, 0]}
                   />
                 </BarChart>

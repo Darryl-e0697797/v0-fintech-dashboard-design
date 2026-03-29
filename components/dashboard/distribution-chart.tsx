@@ -11,10 +11,10 @@ import {
 } from "recharts"
 
 const data = [
-  { name: "Green REITs", value: 45, color: "hsl(var(--chart-1))" },
-  { name: "Solar Energy", value: 25, color: "hsl(var(--chart-2))" },
-  { name: "Wind Power", value: 20, color: "hsl(var(--chart-3))" },
-  { name: "Clean Tech", value: 10, color: "hsl(var(--chart-4))" },
+  { name: "Green REITs", value: 45, color: "#22c55e" },
+  { name: "Solar Energy", value: 25, color: "#3b82f6" },
+  { name: "Wind Power", value: 20, color: "#a855f7" },
+  { name: "Clean Tech", value: 10, color: "#f59e0b" },
 ]
 
 export function DistributionChart() {
