@@ -10,11 +10,15 @@ import {
   Brain,
   ScrollText,
   Shield,
+  FileCheck,
+  ShieldAlert,
 } from "lucide-react"
 
 const navItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/token-actions", label: "Token Actions", icon: Coins },
+  { href: "/product-compliance", label: "Product & Compliance", icon: FileCheck },
+  { href: "/risk-governance", label: "Risk & Governance", icon: ShieldAlert },
   { href: "/esg-insights", label: "ESG Insights", icon: Leaf },
   { href: "/ai-insights", label: "AI Insights", icon: Brain },
   { href: "/transactions", label: "Transactions", icon: ScrollText },

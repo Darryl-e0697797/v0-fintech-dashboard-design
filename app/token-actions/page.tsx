@@ -79,17 +79,22 @@ function MintSection() {
           {isLoading ? "Processing..." : "Mint Tokens"}
         </Button>
         {result && (
-          <div className={`flex items-center gap-2 rounded-lg p-3 ${
+          <div className={`flex items-start gap-2 rounded-lg p-3 ${
             result.success 
               ? "bg-primary/10 text-primary" 
               : "bg-destructive/10 text-destructive"
           }`}>
             {result.success ? (
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
             ) : (
-              <XCircle className="h-4 w-4" />
+              <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
             )}
-            <span className="text-sm">{result.message}</span>
+            <div>
+              <span className="text-sm font-medium block">{result.message}</span>
+              {!result.success && (
+                <span className="text-xs opacity-80 block mt-1">KYC required - Wallet must be whitelisted before receiving tokens</span>
+              )}
+            </div>
           </div>
         )}
       </CardContent>
@@ -167,17 +172,24 @@ function TransferSection() {
           {isLoading ? "Processing..." : "Transfer Tokens"}
         </Button>
         {result && (
-          <div className={`flex items-center gap-2 rounded-lg p-3 ${
+          <div className={`flex items-start gap-2 rounded-lg p-3 ${
             result.success 
               ? "bg-primary/10 text-primary" 
               : "bg-destructive/10 text-destructive"
           }`}>
             {result.success ? (
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
             ) : (
-              <XCircle className="h-4 w-4" />
+              <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
             )}
-            <span className="text-sm">{result.message}</span>
+            <div>
+              <span className="text-sm font-medium block">
+                {result.success ? result.message : "Transfer blocked: wallet not whitelisted"}
+              </span>
+              {!result.success && (
+                <span className="text-xs opacity-80 block mt-1">KYC required - Recipient must complete verification before receiving tokens</span>
+              )}
+            </div>
           </div>
         )}
       </CardContent>
