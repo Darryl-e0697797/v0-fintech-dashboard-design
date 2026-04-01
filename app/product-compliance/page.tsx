@@ -1,8 +1,13 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useWallet } from "@/hooks/use-wallet"
+import { getOwner, getTokenName, getTokenSymbol } from "@/lib/web3/contract"
+import { getContractConfig, formatAddress, getExplorerAddressUrl } from "@/lib/web3/client"
 import { 
   FileCheck, 
   Building2, 
@@ -11,15 +16,154 @@ import {
   TrendingUp, 
   Store,
   Banknote,
-  BarChart3
+  BarChart3,
+  ExternalLink,
+  Wallet,
+  FileCode,
+  CheckCircle,
+  XCircle
 } from "lucide-react"
 
+interface ContractMetadata {
+  name: string
+  symbol: string
+  owner: string
+}
+
 export default function ProductCompliancePage() {
+  const { isConnected, address, isCorrectNetwork, chainId } = useWallet()
+  const [metadata, setMetadata] = useState<ContractMetadata | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Get contract config safely
+  let contractConfig: { address: string; networkName: string; chainId: number; explorerUrl: string } | null = null
+  try {
+    contractConfig = getContractConfig()
+  } catch {
+    contractConfig = null
+  }
+
+  useEffect(() => {
+    async function fetchMetadata() {
+      if (!isConnected || !isCorrectNetwork) {
+        setMetadata(null)
+        return
+      }
+
+      setIsLoading(true)
+      try {
+        const [name, symbol, owner] = await Promise.all([
+          getTokenName(),
+          getTokenSymbol(),
+          getOwner(),
+        ])
+        setMetadata({ name, symbol, owner })
+      } catch (err) {
+        console.error("Error fetching metadata:", err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchMetadata()
+  }, [isConnected, isCorrectNetwork])
+
   return (
     <DashboardLayout 
       title="Product & Compliance" 
       description="Token specifications and regulatory compliance information"
     >
+      {/* Contract Status */}
+      <Card className="mb-6 border-border">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
+              <FileCode className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-lg">Contract Status</CardTitle>
+              <CardDescription>Live contract and connection status</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Wallet Connected</span>
+              </div>
+              {isConnected ? (
+                <Badge className="bg-primary/20 text-primary border-primary/30">
+                  <CheckCircle className="mr-1 h-3 w-3" />
+                  Connected
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-muted-foreground/30 text-muted-foreground">
+                  <XCircle className="mr-1 h-3 w-3" />
+                  Disconnected
+                </Badge>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Network</span>
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                {contractConfig?.networkName || "Not configured"}
+              </p>
+              {chainId && (
+                <p className="text-xs text-muted-foreground mt-1">Chain ID: {chainId}</p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <FileCode className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Contract Address</span>
+              </div>
+              {contractConfig ? (
+                <a
+                  href={`${contractConfig.explorerUrl}/address/${contractConfig.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-mono text-primary hover:underline flex items-center gap-1"
+                >
+                  {formatAddress(contractConfig.address, 8)}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <p className="text-sm text-muted-foreground">Not configured</p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Contract Owner</span>
+              </div>
+              {isLoading ? (
+                <Skeleton className="h-5 w-32" />
+              ) : metadata ? (
+                <a
+                  href={getExplorerAddressUrl(metadata.owner)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-mono text-primary hover:underline flex items-center gap-1"
+                >
+                  {formatAddress(metadata.owner, 8)}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <p className="text-sm text-muted-foreground">Connect wallet</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Product Details */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-border">
@@ -36,6 +180,32 @@ export default function ProductCompliancePage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              <div className="flex items-center justify-between py-3 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <FileCheck className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Token Name</span>
+                </div>
+                {isLoading ? (
+                  <Skeleton className="h-5 w-24" />
+                ) : (
+                  <span className="text-sm font-medium text-foreground">
+                    {metadata?.name || "GCORE Token"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between py-3 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <FileCheck className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Symbol</span>
+                </div>
+                {isLoading ? (
+                  <Skeleton className="h-5 w-16" />
+                ) : (
+                  <Badge variant="outline" className="border-primary text-primary">
+                    {metadata?.symbol || "GCORE"}
+                  </Badge>
+                )}
+              </div>
               <div className="flex items-center justify-between py-3 border-b border-border">
                 <div className="flex items-center gap-3">
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
