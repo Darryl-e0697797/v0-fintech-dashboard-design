@@ -1,79 +1,148 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { getBrowserProvider } from "@/lib/web3/client"
+import { useState, useEffect, useCallback } from "react"
+import { getBrowserProvider, isMetaMaskInstalled, getContractConfig } from "@/lib/web3/client"
+import type { WalletState } from "@/types/ethereum"
 
-declare global {
-  interface Window {
-    ethereum?: any
-  }
+const initialState: WalletState = {
+  isConnected: false,
+  address: null,
+  chainId: null,
+  isCorrectNetwork: false,
 }
 
 export function useWallet() {
-  const [address, setAddress] = useState<string>("")
-  const [isConnected, setIsConnected] = useState(false)
+  const [state, setState] = useState<WalletState>(initialState)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const connectWallet = useCallback(async () => {
+  const checkNetwork = useCallback((chainId: number | null): boolean => {
+    if (!chainId) return false
     try {
-      setIsLoading(true)
-      if (!window.ethereum) throw new Error("MetaMask not detected")
+      const config = getContractConfig()
+      return chainId === config.chainId
+    } catch {
+      return false
+    }
+  }, [])
 
-      await window.ethereum.request({ method: "eth_requestAccounts" })
-      const provider = await getBrowserProvider()
-      const signer = await provider.getSigner()
-      const signerAddress = await signer.getAddress()
+  const updateWalletState = useCallback(async () => {
+    if (!isMetaMaskInstalled()) {
+      setState(initialState)
+      return
+    }
 
-      setAddress(signerAddress)
-      setIsConnected(true)
-    } catch (error) {
-      console.error(error)
-      setIsConnected(false)
-      setAddress("")
+    const provider = getBrowserProvider()
+    if (!provider) {
+      setState(initialState)
+      return
+    }
+
+    try {
+      const accounts = await provider.listAccounts()
+      if (accounts.length === 0) {
+        setState(initialState)
+        return
+      }
+
+      const network = await provider.getNetwork()
+      const chainId = Number(network.chainId)
+      const address = accounts[0].address
+
+      setState({
+        isConnected: true,
+        address,
+        chainId,
+        isCorrectNetwork: checkNetwork(chainId),
+      })
+    } catch (err) {
+      console.error("Error updating wallet state:", err)
+      setState(initialState)
+    }
+  }, [checkNetwork])
+
+  const connect = useCallback(async () => {
+    if (!isMetaMaskInstalled()) {
+      setError("MetaMask is not installed")
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const provider = getBrowserProvider()
+      if (!provider) throw new Error("Provider not available")
+
+      await provider.send("eth_requestAccounts", [])
+      await updateWalletState()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to connect wallet"
+      setError(message)
     } finally {
       setIsLoading(false)
     }
+  }, [updateWalletState])
+
+  const disconnect = useCallback(() => {
+    setState(initialState)
+    setError(null)
   }, [])
 
-  const checkConnection = useCallback(async () => {
-    try {
-      if (!window.ethereum) return
-      const accounts = await window.ethereum.request({ method: "eth_accounts" })
-      if (accounts?.length) {
-        setAddress(accounts[0])
-        setIsConnected(true)
-      }
-    } catch (error) {
-      console.error(error)
+  const switchNetwork = useCallback(async () => {
+    if (!isMetaMaskInstalled() || !window.ethereum) {
+      setError("MetaMask is not installed")
+      return
     }
-  }, [])
 
+    try {
+      const config = getContractConfig()
+      const chainIdHex = `0x${config.chainId.toString(16)}`
+
+      await window.ethereum.request?.({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: chainIdHex }],
+      })
+
+      await updateWalletState()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to switch network"
+      setError(message)
+    }
+  }, [updateWalletState])
+
+  // Listen for account and chain changes
   useEffect(() => {
-    checkConnection()
+    if (!isMetaMaskInstalled() || !window.ethereum) return
 
-    if (!window.ethereum) return
+    const handleAccountsChanged = () => {
+      updateWalletState()
+    }
 
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        setAddress("")
-        setIsConnected(false)
-      } else {
-        setAddress(accounts[0])
-        setIsConnected(true)
-      }
+    const handleChainChanged = () => {
+      updateWalletState()
     }
 
     window.ethereum.on?.("accountsChanged", handleAccountsChanged)
+    window.ethereum.on?.("chainChanged", handleChainChanged)
+
+    // Initial check
+    updateWalletState()
 
     return () => {
       window.ethereum?.removeListener?.("accountsChanged", handleAccountsChanged)
+      window.ethereum?.removeListener?.("chainChanged", handleChainChanged)
     }
-  }, [checkConnection])
+  }, [updateWalletState])
 
   return {
-    address,
-    isConnected,
+    ...state,
     isLoading,
-    connectWallet,
+    error,
+    isMetaMaskInstalled: isMetaMaskInstalled(),
+    connect,
+    disconnect,
+    switchNetwork,
+    refresh: updateWalletState,
   }
 }
