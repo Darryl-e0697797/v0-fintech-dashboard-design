@@ -1,0 +1,16 @@
+# Frontend
+/app/ @Darryl-e0697797
+/components/ @Darryl-e0697797
+
+# Web3 / Integration
+/lib/web3/ @teammate-web3
+
+# Smart Contracts
+/contracts/ @teammate-solidity
+/scripts/ @teammate-solidity
+
+# Data / Analytics
+/data/ @teammate-analytics
+
+# Docs
+/docs/ @teammate-docs
