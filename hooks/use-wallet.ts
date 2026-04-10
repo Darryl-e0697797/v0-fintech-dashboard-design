@@ -1,7 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { getBrowserProvider, isMetaMaskInstalled, getContractConfig } from "@/lib/web3/client"
+import {
+  getBrowserProvider,
+  getConnectedAddress,
+  getContractConfig,
+  getNativeBalance,
+  isMetaMaskInstalled,
+} from "@/lib/web3/client"
+import { DEMO_WALLETS, findDemoWalletByAddress } from "@/lib/demo-wallets"
+import { getDemoProfileFromDocumentCookie } from "@/lib/demo-session"
 import type { WalletState } from "@/types/ethereum"
 
 const initialState: WalletState = {
@@ -9,6 +17,11 @@ const initialState: WalletState = {
   address: null,
   chainId: null,
   isCorrectNetwork: false,
+  currentProfile: "admin",
+  expectedProfileAddress: DEMO_WALLETS.admin.address,
+  connectedLabel: null,
+  isProfileMatch: false,
+  nativeBalance: null,
 }
 
 export function useWallet() {
@@ -19,45 +32,70 @@ export function useWallet() {
   const checkNetwork = useCallback((chainId: number | null): boolean => {
     if (!chainId) return false
     try {
-      const config = getContractConfig()
-      return chainId === config.chainId
+      return chainId === getContractConfig().chainId
     } catch {
       return false
     }
   }, [])
 
   const updateWalletState = useCallback(async () => {
+    const currentProfile = getDemoProfileFromDocumentCookie()
+    const expectedProfileAddress = DEMO_WALLETS[currentProfile].address
+
     if (!isMetaMaskInstalled()) {
-      setState(initialState)
+      setState({
+        ...initialState,
+        currentProfile,
+        expectedProfileAddress,
+      })
       return
     }
 
     const provider = getBrowserProvider()
     if (!provider) {
-      setState(initialState)
+      setState({
+        ...initialState,
+        currentProfile,
+        expectedProfileAddress,
+      })
       return
     }
 
     try {
-      const accounts = await provider.listAccounts()
-      if (accounts.length === 0) {
-        setState(initialState)
+      const connectedAddress = await getConnectedAddress()
+      if (!connectedAddress) {
+        setState({
+          ...initialState,
+          currentProfile,
+          expectedProfileAddress,
+        })
         return
       }
 
       const network = await provider.getNetwork()
       const chainId = Number(network.chainId)
-      const address = accounts[0].address
+      const connectedLabel = findDemoWalletByAddress(connectedAddress)?.label ?? null
+      const nativeBalance = await getNativeBalance(connectedAddress).catch(() => null)
 
       setState({
         isConnected: true,
-        address,
+        address: connectedAddress,
         chainId,
         isCorrectNetwork: checkNetwork(chainId),
+        currentProfile,
+        expectedProfileAddress,
+        connectedLabel,
+        isProfileMatch:
+          connectedAddress.toLowerCase() === expectedProfileAddress.toLowerCase(),
+        nativeBalance,
       })
     } catch (err) {
       console.error("Error updating wallet state:", err)
-      setState(initialState)
+      setState({
+        ...initialState,
+        currentProfile,
+        expectedProfileAddress,
+      })
     }
   }, [checkNetwork])
 
@@ -77,57 +115,44 @@ export function useWallet() {
       await provider.send("eth_requestAccounts", [])
       await updateWalletState()
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to connect wallet"
-      setError(message)
+      setError(err instanceof Error ? err.message : "Failed to connect wallet")
     } finally {
       setIsLoading(false)
     }
   }, [updateWalletState])
 
   const disconnect = useCallback(() => {
-    setState(initialState)
-    setError(null)
-  }, [])
+    updateWalletState()
+  }, [updateWalletState])
 
   const switchNetwork = useCallback(async () => {
-    if (!isMetaMaskInstalled() || !window.ethereum) {
+    if (!window.ethereum) {
       setError("MetaMask is not installed")
       return
     }
 
     try {
       const config = getContractConfig()
-      const chainIdHex = `0x${config.chainId.toString(16)}`
-
       await window.ethereum.request?.({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: chainIdHex }],
+        params: [{ chainId: `0x${config.chainId.toString(16)}` }],
       })
-
       await updateWalletState()
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to switch network"
-      setError(message)
+      setError(err instanceof Error ? err.message : "Failed to switch network")
     }
   }, [updateWalletState])
 
-  // Listen for account and chain changes
   useEffect(() => {
-    if (!isMetaMaskInstalled() || !window.ethereum) return
+    updateWalletState()
 
-    const handleAccountsChanged = () => {
-      updateWalletState()
-    }
+    if (!window.ethereum) return
 
-    const handleChainChanged = () => {
-      updateWalletState()
-    }
+    const handleAccountsChanged = () => updateWalletState()
+    const handleChainChanged = () => updateWalletState()
 
     window.ethereum.on?.("accountsChanged", handleAccountsChanged)
     window.ethereum.on?.("chainChanged", handleChainChanged)
-
-    // Initial check
-    updateWalletState()
 
     return () => {
       window.ethereum?.removeListener?.("accountsChanged", handleAccountsChanged)

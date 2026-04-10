@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -15,80 +15,89 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useWallet } from "@/hooks/use-wallet"
-import { getRecentTransfers } from "@/lib/web3/contract"
-import { fromTokenUnits, getExplorerTxUrl, formatAddress } from "@/lib/web3/client"
-import { Coins, Send, Flame, CheckCircle, RefreshCw, ExternalLink, AlertTriangle } from "lucide-react"
-import type { TransferEvent } from "@/types/ethereum"
+import { getUnifiedTransactions } from "@/lib/web3/contract"
+import { formatAddress, getExplorerTxUrl } from "@/lib/web3/client"
+import {
+  Coins,
+  Send,
+  Flame,
+  RefreshCw,
+  ExternalLink,
+  AlertTriangle,
+  Ban,
+} from "lucide-react"
+import type { UnifiedActivityRow } from "@/types/ethereum"
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+type ActivityFilter = "all" | "mint" | "burn" | "transfer" | "blocked"
 
-interface DisplayTransaction {
-  type: "Mint" | "Transfer" | "Burn"
-  from: string
-  to: string
-  amount: string
-  txHash: string
-  blockNumber: number
-}
-
-function getTransactionType(from: string, to: string): "Mint" | "Transfer" | "Burn" {
-  if (from === ZERO_ADDRESS) return "Mint"
-  if (to === ZERO_ADDRESS) return "Burn"
-  return "Transfer"
-}
-
-function getTypeIcon(type: DisplayTransaction["type"]) {
+function getTypeIcon(type: UnifiedActivityRow["type"]) {
   switch (type) {
-    case "Mint":
+    case "mint":
       return <Coins className="h-4 w-4" />
-    case "Transfer":
+    case "transfer":
       return <Send className="h-4 w-4" />
-    case "Burn":
+    case "burn":
       return <Flame className="h-4 w-4" />
+    case "blocked":
+      return <Ban className="h-4 w-4" />
+    default:
+      return <Coins className="h-4 w-4" />
   }
 }
 
-function getTypeStyle(type: DisplayTransaction["type"]) {
+function getTypeStyle(type: UnifiedActivityRow["type"]) {
   switch (type) {
-    case "Mint":
+    case "mint":
       return "bg-primary/10 text-primary"
-    case "Transfer":
+    case "transfer":
       return "bg-[#3b82f6]/10 text-[#3b82f6]"
-    case "Burn":
+    case "burn":
       return "bg-destructive/10 text-destructive"
+    case "blocked":
+      return "bg-amber-500/10 text-amber-500"
+    default:
+      return "bg-muted text-muted-foreground"
   }
+}
+
+function getTypeLabel(type: UnifiedActivityRow["type"]) {
+  switch (type) {
+    case "mint":
+      return "Mint"
+    case "transfer":
+      return "Transfer"
+    case "burn":
+      return "Burn"
+    case "blocked":
+      return "Blocked"
+    default:
+      return type
+  }
+}
+
+function formatAmount(amount: string) {
+  const value = Number(amount)
+  if (Number.isNaN(value)) return amount
+  return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
 export default function TransactionsPage() {
   const { isConnected, isCorrectNetwork } = useWallet()
-  const [transactions, setTransactions] = useState<DisplayTransaction[]>([])
+
+  const [rows, setRows] = useState<UnifiedActivityRow[]>([])
+  const [filter, setFilter] = useState<ActivityFilter>("all")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchTransactions = async () => {
-    if (!isConnected || !isCorrectNetwork) {
-      setTransactions([])
-      return
-    }
-
+  async function load() {
     setIsLoading(true)
     setError(null)
 
     try {
-      const events = await getRecentTransfers()
-      
-      const displayTxs: DisplayTransaction[] = events.map((event: TransferEvent) => ({
-        type: getTransactionType(event.from, event.to),
-        from: event.from,
-        to: event.to,
-        amount: fromTokenUnits(event.value),
-        txHash: event.transactionHash,
-        blockNumber: event.blockNumber,
-      })).reverse() // Most recent first
-
-      setTransactions(displayTxs)
+      const data = await getUnifiedTransactions()
+      setRows(data)
     } catch (err) {
-      console.error("Error fetching transactions:", err)
+      console.error("Error fetching unified transactions:", err)
       setError("Failed to fetch transactions")
     } finally {
       setIsLoading(false)
@@ -96,22 +105,29 @@ export default function TransactionsPage() {
   }
 
   useEffect(() => {
-    fetchTransactions()
-  }, [isConnected, isCorrectNetwork])
+    load()
+  }, [])
 
-  const stats = {
-    total: transactions.length,
-    mints: transactions.filter(t => t.type === "Mint").length,
-    transfers: transactions.filter(t => t.type === "Transfer").length,
-    burns: transactions.filter(t => t.type === "Burn").length,
-  }
+  const filtered = useMemo(() => {
+    return filter === "all" ? rows : rows.filter((row) => row.type === filter)
+  }, [rows, filter])
+
+  const stats = useMemo(() => {
+    return {
+      total: rows.length,
+      mints: rows.filter((r) => r.type === "mint").length,
+      transfers: rows.filter((r) => r.type === "transfer").length,
+      burns: rows.filter((r) => r.type === "burn").length,
+      blocked: rows.filter((r) => r.type === "blocked").length,
+    }
+  }, [rows])
 
   return (
-    <DashboardLayout 
-      title="Transactions" 
-      description="View all token transactions from the blockchain"
+    <DashboardLayout
+      title="Transactions"
+      description="Unified event view for mint, burn, transfer, and blocked transfer"
     >
-      {/* Connection Warning */}
+      {/* Wallet / network notice */}
       {(!isConnected || !isCorrectNetwork) && (
         <Card className="mb-6 border-amber-500/30 bg-amber-500/10">
           <CardContent className="flex items-center gap-4 p-4">
@@ -120,13 +136,10 @@ export default function TransactionsPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">
-                {!isConnected ? "Wallet not connected" : "Wrong network"}
+                Read-only mode
               </p>
               <p className="text-xs text-muted-foreground">
-                {!isConnected 
-                  ? "Connect your wallet to view live transactions" 
-                  : "Please switch to the correct network"
-                }
+                Transaction history can still load through the RPC endpoint. Connect wallet and switch to the correct network for live write actions.
               </p>
             </div>
           </CardContent>
@@ -134,7 +147,7 @@ export default function TransactionsPage() {
       )}
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="border-border">
           <CardContent className="flex items-center justify-between p-4">
             <div>
@@ -182,25 +195,45 @@ export default function TransactionsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardContent className="flex items-center justify-between p-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Blocked</p>
+              <p className="text-2xl font-semibold text-amber-500">{stats.blocked}</p>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
+              <Ban className="h-5 w-5 text-amber-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <div className="mt-6 mb-4 flex flex-wrap items-center gap-2">
+        {(["all", "mint", "burn", "transfer", "blocked"] as ActivityFilter[]).map((item) => (
+          <Button
+            key={item}
+            variant={filter === item ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilter(item)}
+          >
+            {item}
+          </Button>
+        ))}
+
+        <Button variant="outline" size="sm" onClick={load} disabled={isLoading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       {/* Transactions Table */}
-      <Card className="mt-6 border-border">
+      <Card className="border-border">
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-medium text-foreground">
-              Recent Transfer Events
-            </CardTitle>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={fetchTransactions}
-              disabled={isLoading || !isConnected || !isCorrectNetwork}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
+          <CardTitle className="text-base font-medium text-foreground">
+            Unified Event Table
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -219,23 +252,13 @@ export default function TransactionsPage() {
           ) : error ? (
             <div className="py-12 text-center">
               <p className="text-sm text-destructive">{error}</p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={fetchTransactions}
-                className="mt-4"
-              >
+              <Button variant="outline" size="sm" onClick={load} className="mt-4">
                 Try Again
               </Button>
             </div>
-          ) : transactions.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                {isConnected && isCorrectNetwork 
-                  ? "No transactions found" 
-                  : "Connect wallet to view transactions"
-                }
-              </p>
+              <p className="text-sm text-muted-foreground">No events found.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -247,48 +270,60 @@ export default function TransactionsPage() {
                     <TableHead className="text-muted-foreground">From</TableHead>
                     <TableHead className="text-muted-foreground">To</TableHead>
                     <TableHead className="text-muted-foreground">Block</TableHead>
+                    <TableHead className="text-muted-foreground">Reason</TableHead>
                     <TableHead className="text-right text-muted-foreground">Tx Hash</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map((tx, i) => (
-                    <TableRow key={`${tx.txHash}-${i}`} className="border-border">
+                  {filtered.map((row, i) => (
+                    <TableRow key={`${row.txHash}-${row.blockNumber}-${row.type}-${i}`} className="border-border">
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className={`flex h-8 w-8 items-center justify-center rounded ${getTypeStyle(tx.type)}`}>
-                            {getTypeIcon(tx.type)}
+                          <div className={`flex h-8 w-8 items-center justify-center rounded ${getTypeStyle(row.type)}`}>
+                            {getTypeIcon(row.type)}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{tx.type}</span>
+                          <span className="text-sm font-medium text-foreground">
+                            {getTypeLabel(row.type)}
+                          </span>
                         </div>
                       </TableCell>
+
                       <TableCell className="font-medium text-foreground">
-                        {parseFloat(tx.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        {formatAmount(row.amount)}
                       </TableCell>
+
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {tx.from === ZERO_ADDRESS ? (
+                        {row.type === "mint" ? (
                           <Badge variant="outline" className="text-xs">Minted</Badge>
                         ) : (
-                          formatAddress(tx.from)
+                          formatAddress(row.from)
                         )}
                       </TableCell>
+
                       <TableCell className="font-mono text-xs text-muted-foreground">
-                        {tx.to === ZERO_ADDRESS ? (
+                        {row.type === "burn" ? (
                           <Badge variant="outline" className="text-xs">Burned</Badge>
                         ) : (
-                          formatAddress(tx.to)
+                          formatAddress(row.to)
                         )}
                       </TableCell>
+
                       <TableCell className="text-sm text-muted-foreground">
-                        #{tx.blockNumber.toLocaleString()}
+                        #{row.blockNumber.toLocaleString()}
                       </TableCell>
+
+                      <TableCell className="text-xs text-muted-foreground">
+                        {row.reason ?? "-"}
+                      </TableCell>
+
                       <TableCell className="text-right">
                         <a
-                          href={getExplorerTxUrl(tx.txHash)}
+                          href={getExplorerTxUrl(row.txHash)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                         >
-                          {tx.txHash.slice(0, 10)}...
+                          {row.txHash.slice(0, 10)}...
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       </TableCell>
@@ -305,7 +340,7 @@ export default function TransactionsPage() {
       <Card className="mt-6 border-border">
         <CardContent className="p-6">
           <h3 className="text-base font-medium text-foreground">Transaction Types</h3>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="flex items-start gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                 <Coins className="h-4 w-4 text-primary" />
@@ -313,10 +348,11 @@ export default function TransactionsPage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Mint</p>
                 <p className="text-xs text-muted-foreground">
-                  New tokens created and sent to a wallet (from zero address).
+                  New tokens created and assigned to a wallet.
                 </p>
               </div>
             </div>
+
             <div className="flex items-start gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3b82f6]/10">
                 <Send className="h-4 w-4 text-[#3b82f6]" />
@@ -324,10 +360,11 @@ export default function TransactionsPage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Transfer</p>
                 <p className="text-xs text-muted-foreground">
-                  Tokens moved between two whitelisted wallets.
+                  Tokens moved between permitted wallets.
                 </p>
               </div>
             </div>
+
             <div className="flex items-start gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
                 <Flame className="h-4 w-4 text-destructive" />
@@ -335,7 +372,19 @@ export default function TransactionsPage() {
               <div>
                 <p className="text-sm font-medium text-foreground">Burn</p>
                 <p className="text-xs text-muted-foreground">
-                  Tokens permanently destroyed (sent to zero address).
+                  Tokens permanently removed from circulation.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                <Ban className="h-4 w-4 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Blocked Transfer</p>
+                <p className="text-xs text-muted-foreground">
+                  Attempted transfer rejected by whitelist or compliance rules.
                 </p>
               </div>
             </div>
