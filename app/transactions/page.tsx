@@ -25,6 +25,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Ban,
+  Clock3,
 } from "lucide-react"
 import type { UnifiedActivityRow } from "@/types/ethereum"
 
@@ -50,11 +51,11 @@ function getTypeStyle(type: UnifiedActivityRow["type"]) {
     case "mint":
       return "bg-primary/10 text-primary"
     case "transfer":
-      return "bg-[#3b82f6]/10 text-[#3b82f6]"
+      return "bg-sky-500/10 text-sky-600"
     case "burn":
       return "bg-destructive/10 text-destructive"
     case "blocked":
-      return "bg-amber-500/10 text-amber-500"
+      return "bg-amber-500/10 text-amber-600"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -81,26 +82,46 @@ function formatAmount(amount: string) {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
+function formatLastUpdated(value: number | null) {
+  if (!value) return "Not loaded"
+  return new Date(value).toLocaleString()
+}
+
+const FILTERS: { key: ActivityFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "mint", label: "Mint" },
+  { key: "burn", label: "Burn" },
+  { key: "transfer", label: "Transfer" },
+  { key: "blocked", label: "Blocked" },
+]
+
 export default function TransactionsPage() {
   const { isConnected, isCorrectNetwork } = useWallet()
 
   const [rows, setRows] = useState<UnifiedActivityRow[]>([])
   const [filter, setFilter] = useState<ActivityFilter>("all")
   const [isLoading, setIsLoading] = useState(false)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
+    if (isLoading) return
+
     setIsLoading(true)
     setError(null)
 
     try {
       const data = await getUnifiedTransactions()
-      setRows(data)
+      setRows(Array.isArray(data) ? data : [])
+      setLastUpdated(Date.now())
     } catch (err) {
       console.error("Error fetching unified transactions:", err)
-      setError("Failed to fetch transactions")
+      setRows([])
+      setError("Unable to load transactions from the RPC endpoint right now.")
     } finally {
       setIsLoading(false)
+      setHasLoadedOnce(true)
     }
   }
 
@@ -125,28 +146,24 @@ export default function TransactionsPage() {
   return (
     <DashboardLayout
       title="Transactions"
-      description="Unified event view for mint, burn, transfer, and blocked transfer"
+      description="Unified event view for mint, burn, transfer, and blocked transfer activity"
     >
-      {/* Wallet / network notice */}
       {(!isConnected || !isCorrectNetwork) && (
         <Card className="mb-6 border-amber-500/30 bg-amber-500/10">
           <CardContent className="flex items-center gap-4 p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground">
-                Read-only mode
-              </p>
+              <p className="text-sm font-medium text-foreground">Read-only mode</p>
               <p className="text-xs text-muted-foreground">
-                Transaction history can still load through the RPC endpoint. Connect wallet and switch to the correct network for live write actions.
+                Event history can still load through the RPC endpoint. Connect a wallet on Sepolia for live write actions.
               </p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Card className="border-border">
           <CardContent className="flex items-center justify-between p-4">
@@ -172,14 +189,14 @@ export default function TransactionsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-[#3b82f6]/30 bg-[#3b82f6]/5">
+        <Card className="border-sky-500/30 bg-sky-500/5">
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-sm text-muted-foreground">Transfers</p>
-              <p className="text-2xl font-semibold text-[#3b82f6]">{stats.transfers}</p>
+              <p className="text-2xl font-semibold text-sky-600">{stats.transfers}</p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#3b82f6]/20">
-              <Send className="h-5 w-5 text-[#3b82f6]" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500/20">
+              <Send className="h-5 w-5 text-sky-600" />
             </div>
           </CardContent>
         </Card>
@@ -200,35 +217,40 @@ export default function TransactionsPage() {
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-sm text-muted-foreground">Blocked</p>
-              <p className="text-2xl font-semibold text-amber-500">{stats.blocked}</p>
+              <p className="text-2xl font-semibold text-amber-600">{stats.blocked}</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
-              <Ban className="h-5 w-5 text-amber-500" />
+              <Ban className="h-5 w-5 text-amber-600" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="mt-6 mb-4 flex flex-wrap items-center gap-2">
-        {(["all", "mint", "burn", "transfer", "blocked"] as ActivityFilter[]).map((item) => (
-          <Button
-            key={item}
-            variant={filter === item ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilter(item)}
-          >
-            {item}
-          </Button>
-        ))}
+      <div className="mb-4 mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {FILTERS.map((item) => (
+            <Button
+              key={item.key}
+              variant={filter === item.key ? "default" : "outline"}
+              size="sm"
+              onClick={() => setFilter(item.key)}
+            >
+              {item.label}
+            </Button>
+          ))}
 
-        <Button variant="outline" size="sm" onClick={load} disabled={isLoading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+          <Button variant="outline" size="sm" onClick={load} disabled={isLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Clock3 className="h-4 w-4" />
+          Last updated: {formatLastUpdated(lastUpdated)}
+        </div>
       </div>
 
-      {/* Transactions Table */}
       <Card className="border-border">
         <CardHeader className="pb-4">
           <CardTitle className="text-base font-medium text-foreground">
@@ -236,7 +258,7 @@ export default function TransactionsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && !hasLoadedOnce ? (
             <div className="space-y-3">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="flex items-center gap-4">
@@ -252,13 +274,20 @@ export default function TransactionsPage() {
           ) : error ? (
             <div className="py-12 text-center">
               <p className="text-sm text-destructive">{error}</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                This usually means the configured RPC endpoint is unavailable or contract reads failed.
+              </p>
               <Button variant="outline" size="sm" onClick={load} className="mt-4">
                 Try Again
               </Button>
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
-              <p className="text-sm text-muted-foreground">No events found.</p>
+              <p className="text-sm text-muted-foreground">
+                {rows.length === 0
+                  ? "No transaction events found yet."
+                  : `No ${filter} events found for the selected filter.`}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -276,10 +305,15 @@ export default function TransactionsPage() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((row, i) => (
-                    <TableRow key={`${row.txHash}-${row.blockNumber}-${row.type}-${i}`} className="border-border">
+                    <TableRow
+                      key={`${row.txHash}-${row.blockNumber}-${row.type}-${i}`}
+                      className="border-border"
+                    >
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <div className={`flex h-8 w-8 items-center justify-center rounded ${getTypeStyle(row.type)}`}>
+                          <div
+                            className={`flex h-8 w-8 items-center justify-center rounded ${getTypeStyle(row.type)}`}
+                          >
                             {getTypeIcon(row.type)}
                           </div>
                           <span className="text-sm font-medium text-foreground">
@@ -294,7 +328,9 @@ export default function TransactionsPage() {
 
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {row.type === "mint" ? (
-                          <Badge variant="outline" className="text-xs">Minted</Badge>
+                          <Badge variant="outline" className="text-xs">
+                            Minted
+                          </Badge>
                         ) : (
                           formatAddress(row.from)
                         )}
@@ -302,7 +338,9 @@ export default function TransactionsPage() {
 
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {row.type === "burn" ? (
-                          <Badge variant="outline" className="text-xs">Burned</Badge>
+                          <Badge variant="outline" className="text-xs">
+                            Burned
+                          </Badge>
                         ) : (
                           formatAddress(row.to)
                         )}
@@ -313,7 +351,7 @@ export default function TransactionsPage() {
                       </TableCell>
 
                       <TableCell className="text-xs text-muted-foreground">
-                        {row.reason ?? "-"}
+                        {row.type === "blocked" ? row.reason ?? "Blocked by compliance rule" : "-"}
                       </TableCell>
 
                       <TableCell className="text-right">
@@ -336,7 +374,6 @@ export default function TransactionsPage() {
         </CardContent>
       </Card>
 
-      {/* Info Panel */}
       <Card className="mt-6 border-border">
         <CardContent className="p-6">
           <h3 className="text-base font-medium text-foreground">Transaction Types</h3>
@@ -354,8 +391,8 @@ export default function TransactionsPage() {
             </div>
 
             <div className="flex items-start gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3b82f6]/10">
-                <Send className="h-4 w-4 text-[#3b82f6]" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10">
+                <Send className="h-4 w-4 text-sky-600" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">Transfer</p>
@@ -379,7 +416,7 @@ export default function TransactionsPage() {
 
             <div className="flex items-start gap-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
-                <Ban className="h-4 w-4 text-amber-500" />
+                <Ban className="h-4 w-4 text-amber-600" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">Blocked Transfer</p>

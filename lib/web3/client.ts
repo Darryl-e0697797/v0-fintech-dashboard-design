@@ -18,14 +18,19 @@ export const ROLE_HASHES = {
   ORACLE_ROLE: keccak256(toUtf8Bytes("ORACLE_ROLE")),
 } as const
 
+function cleanEnv(value?: string): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
 export function getContractConfig(): ContractConfig {
-  const address = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS
-  const chainId = process.env.NEXT_PUBLIC_CHAIN_ID
-  const networkName = process.env.NEXT_PUBLIC_NETWORK_NAME
-  const explorerUrl = process.env.NEXT_PUBLIC_EXPLORER_URL
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL
-  const adminAddress = process.env.NEXT_PUBLIC_ADMIN_ADDRESS
-  const startBlock = process.env.NEXT_PUBLIC_START_BLOCK
+  const address = cleanEnv(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS)
+  const chainId = cleanEnv(process.env.NEXT_PUBLIC_CHAIN_ID)
+  const networkName = cleanEnv(process.env.NEXT_PUBLIC_NETWORK_NAME)
+  const explorerUrl = cleanEnv(process.env.NEXT_PUBLIC_EXPLORER_URL)
+  const rpcUrl = cleanEnv(process.env.NEXT_PUBLIC_RPC_URL)
+  const adminAddress = cleanEnv(process.env.NEXT_PUBLIC_ADMIN_ADDRESS)
+  const startBlock = cleanEnv(process.env.NEXT_PUBLIC_START_BLOCK)
 
   if (!address) {
     throw new Error("NEXT_PUBLIC_CONTRACT_ADDRESS is not set")
@@ -52,9 +57,15 @@ export function getBrowserProvider(): BrowserProvider | null {
 }
 
 export function getRpcProvider(): JsonRpcProvider | null {
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL
+  const rpcUrl = cleanEnv(process.env.NEXT_PUBLIC_RPC_URL)
   if (!rpcUrl) return null
-  return new JsonRpcProvider(rpcUrl)
+
+  try {
+    return new JsonRpcProvider(rpcUrl)
+  } catch (err) {
+    console.error("Failed to create RPC provider:", err)
+    return null
+  }
 }
 
 export function getReadProvider(): JsonRpcProvider | BrowserProvider | null {
@@ -86,9 +97,17 @@ export async function getConnectedAddress(): Promise<string | null> {
 
 export async function getNativeBalance(address: string): Promise<string> {
   const provider = getReadProvider()
-  if (!provider) throw new Error("Read provider not available")
-  const balance = await provider.getBalance(address)
-  return formatEther(balance)
+  if (!provider) {
+    throw new Error("Read provider not available")
+  }
+
+  try {
+    const balance = await provider.getBalance(address)
+    return formatEther(balance)
+  } catch (err) {
+    console.error("Failed to fetch native balance:", err)
+    throw err
+  }
 }
 
 export function toTokenUnits(amount: string | number): bigint {

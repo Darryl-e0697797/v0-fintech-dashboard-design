@@ -10,9 +10,11 @@ export const GCORE_TOKEN_ABI = [
   "function transferFrom(address from, address to, uint256 amount) returns (bool)",
 
   "function hasRole(bytes32 role, address account) view returns (bool)",
+  "function DEFAULT_ADMIN_ROLE() view returns (bytes32)",  
   "function OPERATOR_ROLE() view returns (bytes32)",
   "function COMPLIANCE_ROLE() view returns (bytes32)",
   "function ORACLE_ROLE() view returns (bytes32)",
+  "function getRoleAdmin(bytes32 role) view returns (bytes32)",  
 
   "function mint(address to, uint256 amount)",
   "function burn(address from, uint256 amount)",
@@ -25,6 +27,10 @@ export const GCORE_TOKEN_ABI = [
   "function navPerToken() view returns (uint256)",
   "function navLastUpdated() view returns (uint256)",
   "function getLatestNAV() view returns (uint256 nav, uint256 updatedAt)",
+
+  "function grantRole(bytes32 role, address account)",
+  "function revokeRole(bytes32 role, address account)",
+  "function renounceRole(bytes32 role, address account)",
 
   "event Transfer(address indexed from, address indexed to, uint256 value)",
   "event Approval(address indexed owner, address indexed spender, uint256 value)",
