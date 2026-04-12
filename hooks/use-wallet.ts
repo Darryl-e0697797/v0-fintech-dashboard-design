@@ -1,8 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { getBrowserProvider, getContractConfig, isMetaMaskInstalled } from "@/lib/web3/client"
+import { useEffect, useCallback, useSyncExternalStore } from "react"
+import { getContractConfig } from "@/lib/web3/client"
 import type { WalletState } from "@/types/ethereum"
+
+const STORAGE_KEY = "gcore_manual_wallet_address"
 
 const initialState: WalletState = {
   isConnected: false,
@@ -11,137 +13,142 @@ const initialState: WalletState = {
   isCorrectNetwork: false,
 }
 
-export function useWallet() {
-  const [state, setState] = useState<WalletState>(initialState)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+type WalletStoreState = WalletState & {
+  isLoading: boolean
+  error: string | null
+}
 
-  const checkNetwork = useCallback((chainId: number | null): boolean => {
-    if (!chainId) return false
-    try {
-      const config = getContractConfig()
-      return chainId === config.chainId
-    } catch {
-      return false
+let store: WalletStoreState = {
+  ...initialState,
+  isLoading: false,
+  error: null,
+}
+
+const listeners = new Set<() => void>()
+
+function emitChange() {
+  listeners.forEach((listener) => listener())
+}
+
+function setStore(
+  updater:
+    | Partial<WalletStoreState>
+    | ((prev: WalletStoreState) => WalletStoreState),
+) {
+  store =
+    typeof updater === "function"
+      ? updater(store)
+      : { ...store, ...updater }
+
+  emitChange()
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function getSnapshot() {
+  return store
+}
+
+function isValidAddress(address: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(address.trim())
+}
+
+function loadManualAddress() {
+  if (typeof window === "undefined") return null
+  return window.localStorage.getItem(STORAGE_KEY)
+}
+
+function saveManualAddress(address: string | null) {
+  if (typeof window === "undefined") return
+  if (address) {
+    window.localStorage.setItem(STORAGE_KEY, address)
+  } else {
+    window.localStorage.removeItem(STORAGE_KEY)
+  }
+}
+
+function applyManualAddress(address: string | null) {
+  if (!address) {
+    setStore({
+      ...initialState,
+      isLoading: false,
+      error: null,
+    })
+    return
+  }
+
+  const config = getContractConfig()
+
+  setStore({
+    isConnected: true,
+    address,
+    chainId: config.chainId,
+    isCorrectNetwork: true,
+    isLoading: false,
+    error: null,
+  })
+}
+
+let initialLoadTriggered = false
+
+export function useWallet() {
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+
+  const connect = useCallback(async (manualAddress?: string) => {
+    const address = (manualAddress ?? "").trim()
+
+    if (!address) {
+      setStore({ error: "Please enter a wallet address" })
+      return
     }
+
+    if (!isValidAddress(address)) {
+      setStore({ error: "Invalid wallet address format" })
+      return
+    }
+
+    setStore({ isLoading: true, error: null })
+
+    saveManualAddress(address)
+    applyManualAddress(address)
   }, [])
 
-  const updateWalletState = useCallback(async () => {
-    if (!isMetaMaskInstalled()) {
-      setState(initialState)
-      return
-    }
-
-    const provider = getBrowserProvider()
-    if (!provider) {
-      setState(initialState)
-      return
-    }
-
-    try {
-      const accounts = await provider.listAccounts()
-
-      if (!accounts || accounts.length === 0) {
-        setState(initialState)
-        return
-      }
-
-      const network = await provider.getNetwork()
-      const chainId = Number(network.chainId)
-      const address = accounts[0]?.address ?? null
-
-      setState({
-        isConnected: !!address,
-        address,
-        chainId,
-        isCorrectNetwork: checkNetwork(chainId),
-      })
-    } catch (err) {
-      console.error("Error updating wallet state:", err)
-      setState(initialState)
-    }
-  }, [checkNetwork])
-
-  const connect = useCallback(async () => {
-    if (!isMetaMaskInstalled()) {
-      setError("MetaMask is not installed")
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const provider = getBrowserProvider()
-      if (!provider) throw new Error("Provider not available")
-
-      await provider.send("eth_requestAccounts", [])
-      await updateWalletState()
-    } catch (err) {
-      console.error("Wallet connection failed:", err)
-      setError(err instanceof Error ? err.message : "Failed to connect wallet")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [updateWalletState])
-
   const disconnect = useCallback(() => {
-    setState(initialState)
-    setError(null)
+    saveManualAddress(null)
+    setStore({
+      ...initialState,
+      isLoading: false,
+      error: null,
+    })
   }, [])
 
   const switchNetwork = useCallback(async () => {
-    if (!window.ethereum) {
-      setError("MetaMask is not installed")
-      return
-    }
+    // no-op in manual mode
+    setStore({ error: null })
+  }, [])
 
-    try {
-      const config = getContractConfig()
-      const chainIdHex = `0x${config.chainId.toString(16)}`
-
-      await window.ethereum.request?.({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: chainIdHex }],
-      })
-
-      await updateWalletState()
-    } catch (err: any) {
-      console.error("Network switch failed:", err)
-      setError(err?.message || "Failed to switch network")
-    }
-  }, [updateWalletState])
+  const refresh = useCallback(async () => {
+    const saved = loadManualAddress()
+    applyManualAddress(saved)
+  }, [])
 
   useEffect(() => {
-    if (!window.ethereum || !isMetaMaskInstalled()) return
-
-    const handleAccountsChanged = () => {
-      updateWalletState()
+    if (!initialLoadTriggered) {
+      initialLoadTriggered = true
+      const saved = loadManualAddress()
+      applyManualAddress(saved)
     }
-
-    const handleChainChanged = () => {
-      updateWalletState()
-    }
-
-    window.ethereum.on?.("accountsChanged", handleAccountsChanged)
-    window.ethereum.on?.("chainChanged", handleChainChanged)
-
-    updateWalletState()
-
-    return () => {
-      window.ethereum?.removeListener?.("accountsChanged", handleAccountsChanged)
-      window.ethereum?.removeListener?.("chainChanged", handleChainChanged)
-    }
-  }, [updateWalletState])
+  }, [])
 
   return {
     ...state,
-    isLoading,
-    error,
-    isMetaMaskInstalled: isMetaMaskInstalled(),
+    isMetaMaskInstalled: false,
     connect,
     disconnect,
     switchNetwork,
-    refresh: updateWalletState,
+    refresh,
   }
 }

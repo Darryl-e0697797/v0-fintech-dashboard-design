@@ -168,7 +168,7 @@ export default function OverviewPage() {
               Wallet: {address || "Not connected"}
             </span>
             <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
-              Network: {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
+              Address mode: {isConnected ? "Manual wallet selected" : "No wallet selected"}
             </span>
             <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
               Contract: {process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "Not configured"}

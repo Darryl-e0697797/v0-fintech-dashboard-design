@@ -1,24 +1,17 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useWallet } from "@/hooks/use-wallet"
-import { DEMO_WALLET_LIST, findDemoWalletByAddress } from "@/lib/demo-wallets"
 import {
-  getBalanceOf,
   getRoleStatuses,
-  getWalletAccessProfile,
   grantRoleToWallet,
   revokeRoleFromWallet,
-  setWhitelistStatus,
-  type WalletAccessProfile,
 } from "@/lib/web3/contract"
-import { ROLE_HASHES } from "@/lib/web3/client"
-import { formatAddress } from "@/lib/web3/client"
-import { cn } from "@/lib/utils"
+import { ROLE_HASHES, formatAddress } from "@/lib/web3/client"
 
 type ManagedRoleKey =
   | "DEFAULT_ADMIN_ROLE"
@@ -49,25 +42,38 @@ const ROLE_OPTIONS: { key: ManagedRoleKey; label: string; hash: string }[] = [
   },
 ]
 
-function StatusBadge({
-  children,
-  variant = "default",
+type RoleWalletForm = {
+  currentWallet: string
+  newWallet: string
+}
+
+const EMPTY_ROLE_FORMS: Record<ManagedRoleKey, RoleWalletForm> = {
+  DEFAULT_ADMIN_ROLE: { currentWallet: "", newWallet: "" },
+  OPERATOR_ROLE: { currentWallet: "", newWallet: "" },
+  COMPLIANCE_ROLE: { currentWallet: "", newWallet: "" },
+  ORACLE_ROLE: { currentWallet: "", newWallet: "" },
+}
+
+function isValidAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim())
+}
+
+function RoleBadge({
+  label,
+  active,
 }: {
-  children: React.ReactNode
-  variant?: "default" | "success" | "warning" | "danger" | "muted"
+  label: string
+  active: boolean
 }) {
   return (
     <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
-        variant === "default" && "border-border bg-secondary text-secondary-foreground",
-        variant === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-600",
-        variant === "warning" && "border-amber-500/30 bg-amber-500/10 text-amber-600",
-        variant === "danger" && "border-red-500/30 bg-red-500/10 text-red-600",
-        variant === "muted" && "border-border bg-muted text-muted-foreground"
-      )}
+      className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+        active
+          ? "border border-primary/30 bg-primary/10 text-primary"
+          : "border border-white/10 bg-background/60 text-muted-foreground"
+      }`}
     >
-      {children}
+      {label}
     </span>
   )
 }
@@ -82,10 +88,9 @@ export default function RoleManagementPage() {
     oracle: boolean
   } | null>(null)
 
-  const [targetWallet, setTargetWallet] = useState("")
-  const [targetProfile, setTargetProfile] = useState<WalletAccessProfile | null>(null)
-  const [targetBalance, setTargetBalance] = useState<string>("0")
-  const [isLoadingProfile, setIsLoadingProfile] = useState(false)
+  const [forms, setForms] =
+    useState<Record<ManagedRoleKey, RoleWalletForm>>(EMPTY_ROLE_FORMS)
+
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -110,201 +115,149 @@ export default function RoleManagementPage() {
   }, [address, isConnected, isCorrectNetwork])
 
   const canManageRoles = !!viewerRoles?.defaultAdmin
-  const canManageWhitelist = !!viewerRoles?.defaultAdmin || !!viewerRoles?.compliance
 
-  const knownWalletLabel = useMemo(() => {
-    return findDemoWalletByAddress(targetWallet)?.label ?? null
-  }, [targetWallet])
+  function updateForm(
+    roleKey: ManagedRoleKey,
+    field: keyof RoleWalletForm,
+    value: string
+  ) {
+    setForms((prev) => ({
+      ...prev,
+      [roleKey]: {
+        ...prev[roleKey],
+        [field]: value,
+      },
+    }))
+  }
 
-  async function loadWalletProfile(wallet: string) {
-    const trimmed = wallet.trim()
-    if (!trimmed) {
-      setError("Enter a wallet address.")
-      setTargetProfile(null)
+  async function handleAssignOrChangeRole(roleKey: ManagedRoleKey, roleHash: string, roleLabel: string) {
+    const currentWallet = forms[roleKey].currentWallet.trim()
+    const newWallet = forms[roleKey].newWallet.trim()
+
+    setError(null)
+    setFeedback(null)
+
+    if (!newWallet) {
+      setError(`Enter a new wallet for ${roleLabel}.`)
       return
     }
 
-    setIsLoadingProfile(true)
-    setError(null)
-    setFeedback(null)
-
-    try {
-      const [profile, balance] = await Promise.all([
-        getWalletAccessProfile(trimmed),
-        getBalanceOf(trimmed),
-      ])
-
-      setTargetProfile(profile)
-      setTargetBalance(balance)
-    } catch (err) {
-      console.error(err)
-      setTargetProfile(null)
-      setTargetBalance("0")
-      setError("Failed to load wallet profile. Check the address and contract connection.")
-    } finally {
-      setIsLoadingProfile(false)
+    if (!isValidAddress(newWallet)) {
+      setError(`Invalid new wallet address for ${roleLabel}.`)
+      return
     }
-  }
 
-  async function handleGrantRole(roleHash: string, roleLabel: string) {
-    if (!targetWallet.trim()) return
+    if (currentWallet && !isValidAddress(currentWallet)) {
+      setError(`Invalid current wallet address for ${roleLabel}.`)
+      return
+    }
+
+    if (currentWallet && currentWallet.toLowerCase() === newWallet.toLowerCase()) {
+      setError(`Current and new wallet for ${roleLabel} cannot be the same.`)
+      return
+    }
 
     setIsSubmitting(true)
-    setError(null)
-    setFeedback(null)
 
     try {
-      const tx = await grantRoleToWallet(roleHash, targetWallet.trim())
-      setFeedback(`Granting ${roleLabel}... waiting for confirmation (${tx.hash})`)
-      await tx.wait()
-      setFeedback(`${roleLabel} granted successfully.`)
-      await loadWalletProfile(targetWallet)
+      if (currentWallet) {
+        const revokeTx = await revokeRoleFromWallet(roleHash, currentWallet)
+        setFeedback(`Revoking ${roleLabel} from ${currentWallet}... (${revokeTx.hash})`)
+        await revokeTx.wait()
+      }
+
+      const grantTx = await grantRoleToWallet(roleHash, newWallet)
+      setFeedback(`Assigning ${roleLabel} to ${newWallet}... (${grantTx.hash})`)
+      await grantTx.wait()
+
+      setFeedback(`${roleLabel} updated successfully.`)
+      setForms((prev) => ({
+        ...prev,
+        [roleKey]: {
+          currentWallet: newWallet,
+          newWallet: "",
+        },
+      }))
     } catch (err) {
       console.error(err)
-      setError(`Failed to grant ${roleLabel}.`)
+      setError(`Failed to update ${roleLabel}.`)
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  async function handleRevokeRole(roleHash: string, roleLabel: string) {
-    if (!targetWallet.trim()) return
+  async function handleRemoveRole(roleKey: ManagedRoleKey, roleHash: string, roleLabel: string) {
+    const currentWallet = forms[roleKey].currentWallet.trim()
 
-    setIsSubmitting(true)
     setError(null)
     setFeedback(null)
 
+    if (!currentWallet) {
+      setError(`Enter the current wallet for ${roleLabel} before removing it.`)
+      return
+    }
+
+    if (!isValidAddress(currentWallet)) {
+      setError(`Invalid current wallet address for ${roleLabel}.`)
+      return
+    }
+
+    setIsSubmitting(true)
+
     try {
-      const tx = await revokeRoleFromWallet(roleHash, targetWallet.trim())
-      setFeedback(`Revoking ${roleLabel}... waiting for confirmation (${tx.hash})`)
+      const tx = await revokeRoleFromWallet(roleHash, currentWallet)
+      setFeedback(`Removing ${roleLabel} from ${currentWallet}... (${tx.hash})`)
       await tx.wait()
-      setFeedback(`${roleLabel} revoked successfully.`)
-      await loadWalletProfile(targetWallet)
+
+      setFeedback(`${roleLabel} removed successfully.`)
+      setForms((prev) => ({
+        ...prev,
+        [roleKey]: {
+          currentWallet: "",
+          newWallet: "",
+        },
+      }))
     } catch (err) {
       console.error(err)
-      setError(`Failed to revoke ${roleLabel}.`)
+      setError(`Failed to remove ${roleLabel}.`)
     } finally {
       setIsSubmitting(false)
     }
   }
-
-  async function handleWhitelist(status: boolean) {
-    if (!targetWallet.trim()) return
-
-    setIsSubmitting(true)
-    setError(null)
-    setFeedback(null)
-
-    try {
-      const tx = await setWhitelistStatus(targetWallet.trim(), status)
-      setFeedback(
-        `${status ? "Adding to" : "Removing from"} whitelist... waiting for confirmation (${tx.hash})`
-      )
-      await tx.wait()
-      setFeedback(`Whitelist updated successfully.`)
-      await loadWalletProfile(targetWallet)
-    } catch (err) {
-      console.error(err)
-      setError(`Failed to update whitelist status.`)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const connectedProfileText = useMemo(() => {
-    if (!viewerRoles) return "Disconnected / unavailable"
-    if (viewerRoles.defaultAdmin) return "Super Admin"
-    if (viewerRoles.compliance && viewerRoles.operator && viewerRoles.oracle) return "Platform Admin"
-    if (viewerRoles.compliance) return "Compliance Admin"
-    if (viewerRoles.operator) return "Operations Admin"
-    if (viewerRoles.oracle) return "Oracle Admin"
-    return "Read-only wallet"
-  }, [viewerRoles])
 
   return (
     <DashboardLayout
       title="Role Management"
-      description="Manage on-chain access roles and whitelist status using connected wallet permissions."
+      description="Assign, change, or remove admin-role wallets using the connected DEFAULT_ADMIN_ROLE signer."
     >
       <div className="grid gap-6">
-        <Card className="border-border">
+        <Card className="border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
           <CardHeader>
-            <CardTitle className="text-base">Connected Wallet Access</CardTitle>
+            <CardTitle className="text-base">Connected Signer</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border border-border p-3">
-              <div className="text-xs text-muted-foreground">Connected wallet</div>
+          <CardContent className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="text-xs text-muted-foreground">Wallet</div>
               <div className="mt-1 font-mono text-sm">
                 {address ? formatAddress(address) : "Not connected"}
               </div>
             </div>
 
-            <div className="rounded-lg border border-border p-3">
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="text-xs text-muted-foreground">Network</div>
-              <div className="mt-1 text-sm">{isCorrectNetwork ? "Sepolia" : "Wrong / not connected"}</div>
-            </div>
-
-            <div className="rounded-lg border border-border p-3">
-              <div className="text-xs text-muted-foreground">Profile</div>
-              <div className="mt-1 text-sm">{connectedProfileText}</div>
-            </div>
-
-            <div className="rounded-lg border border-border p-3">
-              <div className="text-xs text-muted-foreground">Permissions</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {viewerRoles?.defaultAdmin && <StatusBadge variant="success">Super Admin</StatusBadge>}
-                {viewerRoles?.operator && <StatusBadge variant="default">Operator</StatusBadge>}
-                {viewerRoles?.compliance && <StatusBadge variant="warning">Compliance</StatusBadge>}
-                {viewerRoles?.oracle && <StatusBadge variant="muted">Oracle</StatusBadge>}
-                {!viewerRoles?.defaultAdmin &&
-                  !viewerRoles?.operator &&
-                  !viewerRoles?.compliance &&
-                  !viewerRoles?.oracle && <StatusBadge variant="danger">Read-only</StatusBadge>}
+              <div className="mt-1 text-sm">
+                {isCorrectNetwork ? "Sepolia" : "Wrong / not connected"}
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card className="border-border">
-          <CardHeader>
-            <CardTitle className="text-base">Lookup Wallet</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-col gap-3 lg:flex-row">
-              <Input
-                placeholder="Enter wallet address"
-                value={targetWallet}
-                onChange={(e) => setTargetWallet(e.target.value)}
-                className="font-mono"
-              />
-              <Button
-                onClick={() => loadWalletProfile(targetWallet)}
-                disabled={!isConnected || !isCorrectNetwork || isLoadingProfile}
-              >
-                {isLoadingProfile ? "Loading..." : "Load Wallet"}
-              </Button>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {DEMO_WALLET_LIST.map((wallet) => (
-                <button
-                  key={wallet.key}
-                  type="button"
-                  onClick={() => {
-                    setTargetWallet(wallet.address)
-                    loadWalletProfile(wallet.address)
-                  }}
-                  className="rounded-lg border border-border p-3 text-left transition hover:bg-muted"
-                >
-                  <div className="text-sm font-medium">{wallet.label}</div>
-                  <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                    {wallet.address || "Not configured"}
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {wallet.notes || "Known wallet"}
-                  </div>
-                </button>
-              ))}
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="text-xs text-muted-foreground">Permissions</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <RoleBadge label="Admin" active={!!viewerRoles?.defaultAdmin} />
+                <RoleBadge label="Operator" active={!!viewerRoles?.operator} />
+                <RoleBadge label="Compliance" active={!!viewerRoles?.compliance} />
+                <RoleBadge label="Oracle" active={!!viewerRoles?.oracle} />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -321,158 +274,81 @@ export default function RoleManagementPage() {
           </Card>
         )}
 
-        {targetProfile && (
-          <>
-            <Card className="border-border">
+        <div className="grid gap-6 xl:grid-cols-2">
+          {ROLE_OPTIONS.map((role) => (
+            <Card
+              key={role.key}
+              className="border-white/10 bg-card/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
+            >
               <CardHeader>
-                <CardTitle className="text-base">Wallet Profile</CardTitle>
+                <CardTitle className="text-base">{role.label}</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3 rounded-lg border border-border p-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Wallet address</div>
-                    <div className="mt-1 break-all font-mono text-sm">{targetWallet}</div>
+              <CardContent className="space-y-4">
+                {!canManageRoles ? (
+                  <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                    Requires DEFAULT_ADMIN_ROLE.
                   </div>
-
-                  <div>
-                    <div className="text-xs text-muted-foreground">Known wallet label</div>
-                    <div className="mt-1 text-sm">{knownWalletLabel ?? "Not in known wallet list"}</div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs text-muted-foreground">Profile label</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <StatusBadge
-                        variant={
-                          targetProfile.defaultAdmin
-                            ? "success"
-                            : targetProfile.isWhitelisted
-                            ? "default"
-                            : "danger"
-                        }
-                      >
-                        {targetProfile.profileLabel}
-                      </StatusBadge>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">
+                        Current wallet for this role
+                      </div>
+                      <Input
+                        placeholder="0x... current wallet (leave blank if none)"
+                        value={forms[role.key].currentWallet}
+                        onChange={(e) => updateForm(role.key, "currentWallet", e.target.value)}
+                        className="font-mono"
+                      />
                     </div>
-                  </div>
 
-                  <div>
-                    <div className="text-xs text-muted-foreground">Token balance</div>
-                    <div className="mt-1 text-sm">{targetBalance}</div>
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-lg border border-border p-4">
-                  <div className="text-xs text-muted-foreground">Current access state</div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <StatusBadge variant={targetProfile.isWhitelisted ? "success" : "danger"}>
-                      {targetProfile.isWhitelisted ? "Whitelisted" : "Not whitelisted"}
-                    </StatusBadge>
-                    {targetProfile.defaultAdmin && <StatusBadge variant="success">Super Admin</StatusBadge>}
-                    {targetProfile.operator && <StatusBadge variant="default">Operator</StatusBadge>}
-                    {targetProfile.compliance && <StatusBadge variant="warning">Compliance</StatusBadge>}
-                    {targetProfile.oracle && <StatusBadge variant="muted">Oracle</StatusBadge>}
-                  </div>
-
-                  <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                    Investor wallets should usually be whitelisted and carry no admin roles. Professor or
-                    reviewer wallets can be granted admin roles on-chain without changing frontend code.
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className="text-base">Whitelist Management</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!canManageWhitelist ? (
-                    <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
-                      Requires Compliance Role or Super Admin.
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">
+                        New wallet for this role
+                      </div>
+                      <Input
+                        placeholder="0x... new wallet"
+                        value={forms[role.key].newWallet}
+                        onChange={(e) => updateForm(role.key, "newWallet", e.target.value)}
+                        className="font-mono"
+                      />
                     </div>
-                  ) : (
+
+                    <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                      To change the {role.label.toLowerCase()} wallet, enter the current wallet
+                      (if any) and the new wallet, then click <span className="font-medium">Change Wallet</span>.
+                    </div>
+
                     <div className="flex flex-wrap gap-3">
                       <Button
-                        onClick={() => handleWhitelist(true)}
+                        className="rounded-xl font-semibold"
+                        onClick={() =>
+                          handleAssignOrChangeRole(role.key, role.hash, role.label)
+                        }
                         disabled={isSubmitting || !isConnected || !isCorrectNetwork}
                       >
-                        Add to whitelist
+                        Change Wallet
                       </Button>
+
                       <Button
                         variant="destructive"
-                        onClick={() => handleWhitelist(false)}
+                        className="rounded-xl font-semibold"
+                        onClick={() => handleRemoveRole(role.key, role.hash, role.label)}
                         disabled={isSubmitting || !isConnected || !isCorrectNetwork}
                       >
-                        Remove from whitelist
+                        Remove Current Wallet
                       </Button>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
 
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className="text-base">Role Management</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!canManageRoles ? (
-                    <div className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
-                      Requires DEFAULT_ADMIN_ROLE.
+                    <div className="text-[11px] font-mono text-muted-foreground break-all">
+                      Role hash: {role.hash}
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {ROLE_OPTIONS.map((role) => {
-                        const active =
-                          (role.key === "DEFAULT_ADMIN_ROLE" && targetProfile.defaultAdmin) ||
-                          (role.key === "OPERATOR_ROLE" && targetProfile.operator) ||
-                          (role.key === "COMPLIANCE_ROLE" && targetProfile.compliance) ||
-                          (role.key === "ORACLE_ROLE" && targetProfile.oracle)
-
-                        return (
-                          <div
-                            key={role.key}
-                            className="flex flex-col justify-between gap-3 rounded-lg border border-border p-3 lg:flex-row lg:items-center"
-                          >
-                            <div>
-                              <div className="text-sm font-medium">{role.label}</div>
-                              <div className="mt-1 text-xs text-muted-foreground font-mono">
-                                {role.hash}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <StatusBadge variant={active ? "success" : "muted"}>
-                                {active ? "Assigned" : "Not assigned"}
-                              </StatusBadge>
-                              <Button
-                                size="sm"
-                                onClick={() => handleGrantRole(role.hash, role.label)}
-                                disabled={isSubmitting || !isConnected || !isCorrectNetwork}
-                              >
-                                Grant
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleRevokeRole(role.hash, role.label)}
-                                disabled={isSubmitting || !isConnected || !isCorrectNetwork}
-                              >
-                                Revoke
-                              </Button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </>
-        )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </DashboardLayout>
   )

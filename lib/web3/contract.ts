@@ -30,12 +30,32 @@ export interface WalletAccessProfile {
   profileLabel: string
 }
 
-async function getContractReadOnly(): Promise<Contract> {
-  const provider = getReadProvider()
-  if (!provider) throw new Error("Read provider not available")
+// async function getContractReadOnly(): Promise<Contract> {
+//   const provider = getReadProvider()
+//   if (!provider) throw new Error("Read provider not available")
 
+//   const config = getContractConfig()
+//   return new Contract(config.address, GCORE_TOKEN_ABI, provider)
+// }
+
+async function getContractReadOnly(): Promise<Contract> {
   const config = getContractConfig()
-  return new Contract(config.address, GCORE_TOKEN_ABI, provider)
+
+  try {
+    const provider = getReadProvider()
+    if (provider) {
+      return new Contract(config.address, GCORE_TOKEN_ABI, provider)
+    }
+  } catch (err) {
+    console.warn("Read provider unavailable, falling back to signer/provider:", err)
+  }
+
+  const signer = await getSigner()
+  if (signer) {
+    return new Contract(config.address, GCORE_TOKEN_ABI, signer)
+  }
+
+  throw new Error("No read provider or signer available")
 }
 
 async function getContractWithSigner(): Promise<Contract> {
@@ -92,15 +112,48 @@ export async function isWhitelisted(address: string): Promise<boolean> {
   }
 }
 
+// export async function getRoleStatuses(address: string): Promise<RoleStatus> {
+//   try {
+//     const contract = await getContractReadOnly()
+
+//     const [defaultAdmin, operator, compliance, oracle] = await Promise.all([
+//       contract.hasRole(ROLE_HASHES.DEFAULT_ADMIN_ROLE, address),
+//       contract.hasRole(ROLE_HASHES.OPERATOR_ROLE, address),
+//       contract.hasRole(ROLE_HASHES.COMPLIANCE_ROLE, address),
+//       contract.hasRole(ROLE_HASHES.ORACLE_ROLE, address),
+//     ])
+
+//     return { defaultAdmin, operator, compliance, oracle }
+//   } catch (err) {
+//     console.error("Failed to fetch role statuses:", err)
+//     return {
+//       defaultAdmin: false,
+//       operator: false,
+//       compliance: false,
+//       oracle: false,
+//     }
+//   }
+// }
+
 export async function getRoleStatuses(address: string): Promise<RoleStatus> {
   try {
     const contract = await getContractReadOnly()
 
+    const safeAddress = address?.trim()
+    if (!safeAddress) {
+      return {
+        defaultAdmin: false,
+        operator: false,
+        compliance: false,
+        oracle: false,
+      }
+    }
+
     const [defaultAdmin, operator, compliance, oracle] = await Promise.all([
-      contract.hasRole(ROLE_HASHES.DEFAULT_ADMIN_ROLE, address),
-      contract.hasRole(ROLE_HASHES.OPERATOR_ROLE, address),
-      contract.hasRole(ROLE_HASHES.COMPLIANCE_ROLE, address),
-      contract.hasRole(ROLE_HASHES.ORACLE_ROLE, address),
+      contract.hasRole(ROLE_HASHES.DEFAULT_ADMIN_ROLE, safeAddress),
+      contract.hasRole(ROLE_HASHES.OPERATOR_ROLE, safeAddress),
+      contract.hasRole(ROLE_HASHES.COMPLIANCE_ROLE, safeAddress),
+      contract.hasRole(ROLE_HASHES.ORACLE_ROLE, safeAddress),
     ])
 
     return { defaultAdmin, operator, compliance, oracle }
