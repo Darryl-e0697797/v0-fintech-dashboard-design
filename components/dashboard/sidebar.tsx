@@ -35,11 +35,25 @@ export function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-sidebar-border bg-sidebar">
       <div className="flex h-full flex-col">
-        <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
+        {/* <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Leaf className="h-5 w-5 text-primary-foreground" />
           </div>
           <span className="text-xl font-semibold text-sidebar-foreground">GCORE</span>
+        </div> */}
+
+        <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/90 shadow-[0_0_24px_rgba(34,197,94,0.18)]">
+              <Leaf className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div>
+              <div className="text-base font-black tracking-tight text-sidebar-foreground">GCORE</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-sidebar-foreground/50">
+                Operator
+              </div>
+            </div>
+          </div>
         </div>
 
         <nav className="flex-1 space-y-1 p-4">

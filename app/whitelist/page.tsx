@@ -165,7 +165,8 @@ export default function WhitelistPage() {
       title="Whitelist"
       description="Wallet eligibility and whitelist administration"
     >
-      <Card className="mb-6 border-border">
+      {/* <Card className="mb-6 border-border"> */}
+      <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
         <CardHeader>
           <CardTitle className="text-lg">Whitelist Access Status</CardTitle>
           <CardDescription>
@@ -174,7 +175,8 @@ export default function WhitelistPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-lg border border-border p-4">
+            {/* <div className="rounded-lg border border-border p-4"> */}
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Connected Wallet</span>
@@ -184,7 +186,8 @@ export default function WhitelistPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border p-4">
+            {/* <div className="rounded-lg border border-border p-4"> */}
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Globe className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Network</span>
@@ -194,7 +197,8 @@ export default function WhitelistPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border p-4">
+            {/* <div className="rounded-lg border border-border p-4"> */}
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Lock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Profile</span>
@@ -202,7 +206,8 @@ export default function WhitelistPage() {
               <div className="text-sm font-medium text-foreground">{connectedProfileLabel}</div>
             </div>
 
-            <div className="rounded-lg border border-border p-4">
+            {/* <div className="rounded-lg border border-border p-4"> */}
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Shield className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Whitelist Permissions</span>
@@ -223,7 +228,8 @@ export default function WhitelistPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge
                 variant={viewerRoles.defaultAdmin ? "default" : "outline"}
-                className={viewerRoles.defaultAdmin ? "bg-primary/15 text-primary border-primary/30" : ""}
+                // className={viewerRoles.defaultAdmin ? "bg-primary/15 text-primary border-primary/30" : ""}
+                className={viewerRoles.defaultAdmin ? "bg-primary/15 text-primary border-primary/30" : "border-white/10 bg-background/60 text-muted-foreground"}
               >
                 DEFAULT_ADMIN_ROLE
               </Badge>
@@ -250,7 +256,8 @@ export default function WhitelistPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* <div className="grid gap-6 lg:grid-cols-2"> */}
+      <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">  
         <Card className="border-border">
           <CardHeader>
             <CardTitle className="text-base">Wallet Lookup</CardTitle>
@@ -267,6 +274,7 @@ export default function WhitelistPage() {
                 className="font-mono"
               />
               <Button
+                className="rounded-xl font-semibold"
                 onClick={() => lookupWallet(targetWallet)}
                 disabled={targetLoading}
               >
@@ -315,6 +323,7 @@ export default function WhitelistPage() {
             {canManageWhitelist ? (
               <div className="flex flex-wrap gap-3">
                 <Button
+                  className="rounded-xl font-semibold"
                   onClick={() => handleSetWhitelist(true)}
                   disabled={isSubmitting || !isConnected || !isCorrectNetwork}
                 >
@@ -322,6 +331,7 @@ export default function WhitelistPage() {
                 </Button>
                 <Button
                   variant="destructive"
+                  className="rounded-xl font-semibold"
                   onClick={() => handleSetWhitelist(false)}
                   disabled={isSubmitting || !isConnected || !isCorrectNetwork}
                 >

@@ -204,7 +204,7 @@ export default function TokenActionsPage() {
       title="Token Actions"
       description="Mint, burn, transfer, and blocked-transfer workflow controls"
     >
-      <Card className="mb-6 border-border">
+      {/* <Card className="mb-6 border-border">
         <CardContent className="p-4 text-sm">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
@@ -228,7 +228,47 @@ export default function TokenActionsPage() {
             )}
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
+
+      <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+        <CardContent className="p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
+                Admin Actions
+              </div>
+              <h2 className="mt-2 text-2xl font-black tracking-tight text-foreground">
+                Mint, Burn, Transfer
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Use connected operator or admin wallets to execute token actions and blocked-transfer demos.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+                Wallet: {address || "Not connected"}
+              </span>
+              <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+                Network: {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
+              </span>
+
+              {loadingRoles ? (
+                <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+                  Loading roles...
+                </span>
+              ) : (
+                <>
+                  <RoleBadge label="Admin" active={!!roles?.defaultAdmin} />
+                  <RoleBadge label="Operator" active={!!roles?.operator} />
+                  <RoleBadge label="Compliance" active={!!roles?.compliance} />
+                  <RoleBadge label="Oracle" active={!!roles?.oracle} />
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>      
 
       {feedback && (
         <Card className="mb-6 border-primary/30 bg-primary/10">
@@ -242,7 +282,8 @@ export default function TokenActionsPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* <div className="grid gap-6 lg:grid-cols-2"> */}
+      <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
         <Card className="border-border">
           <CardHeader>
             <CardTitle className="text-base">Self Transfer</CardTitle>
@@ -263,6 +304,7 @@ export default function TokenActionsPage() {
               Available to connected wallets. Contract whitelist rules still apply.
             </div>
             <Button
+              className="w-full rounded-xl font-semibold"
               onClick={handleTransfer}
               disabled={!isConnected || !isCorrectNetwork || isSubmitting}
             >
@@ -312,6 +354,7 @@ export default function TokenActionsPage() {
                   Required role: OPERATOR_ROLE or DEFAULT_ADMIN_ROLE
                 </div>
                 <Button
+                  className="w-full rounded-xl font-semibold"
                   onClick={handleMint}
                   disabled={!isConnected || !isCorrectNetwork || isSubmitting}
                 >
@@ -341,6 +384,7 @@ export default function TokenActionsPage() {
                 </div>
                 <Button
                   variant="destructive"
+                  className="w-full rounded-xl font-semibold"
                   onClick={handleBurn}
                   disabled={!isConnected || !isCorrectNetwork || isSubmitting}
                 >
@@ -373,6 +417,7 @@ export default function TokenActionsPage() {
                     onChange={(e) => setOpAmount(e.target.value)}
                   />
                   <Button
+                    className="w-full rounded-xl font-semibold"
                     onClick={handleOperatorTransfer}
                     disabled={!isConnected || !isCorrectNetwork || isSubmitting}
                   >

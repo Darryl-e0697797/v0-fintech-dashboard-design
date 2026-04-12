@@ -98,7 +98,7 @@ export default function OverviewPage() {
       title="Overview"
       description="Core Phase 1 dashboard for the tokenized GRN.SI wrapper"
     >
-      <Card className="mb-6 border-border">
+      {/* <Card className="mb-6 border-border">
         <CardContent className="p-4 text-sm">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
@@ -145,7 +145,71 @@ export default function OverviewPage() {
             )}
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
+
+    <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+      <CardContent className="p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
+              GCORE Operator Console
+            </div>
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-foreground">
+              Tokenized Green REIT Dashboard
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+              Live overview of supply, whitelist controls, wallet distribution, and token
+              operations for the GRN.SI wrapper.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+              Wallet: {address || "Not connected"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+              Network: {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+              Contract: {process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "Not configured"}
+            </span>
+
+            {data?.roles && (
+              <>
+                {data.roles.defaultAdmin && (
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                    Admin
+                  </span>
+                )}
+                {data.roles.operator && (
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                    Operator
+                  </span>
+                )}
+                {data.roles.compliance && (
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                    Compliance
+                  </span>
+                )}
+                {data.roles.oracle && (
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary">
+                    Oracle
+                  </span>
+                )}
+                {!data.roles.defaultAdmin &&
+                  !data.roles.operator &&
+                  !data.roles.compliance &&
+                  !data.roles.oracle && (
+                    <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+                      Investor / read-only
+                    </span>
+                  )}
+              </>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>      
 
       {error && (
         <Card className="mb-6 border-destructive/30 bg-destructive/10">
@@ -153,7 +217,8 @@ export default function OverviewPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"> */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
         <StatCard
           title="Total Supply"
           value={data?.totalSupply ?? "---"}
@@ -205,6 +270,11 @@ export default function OverviewPage() {
         />
       </div>
 
+      {/* <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <PortfolioChart />
+        <DistributionChart rows={data?.walletRows ?? []} />
+      </div> */}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <PortfolioChart />
         <DistributionChart rows={data?.walletRows ?? []} />
@@ -214,7 +284,8 @@ export default function OverviewPage() {
         <KeyMetrics />
 
         <div className="lg:col-span-2">
-          <Card className="border-border">
+          {/* <Card className="border-border"> */}
+          <Card className="border-white/10 bg-card/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
             <CardHeader>
               <CardTitle className="text-base font-medium">Wallet Holdings</CardTitle>
             </CardHeader>
@@ -227,7 +298,8 @@ export default function OverviewPage() {
                 (data?.walletRows ?? []).map((row) => (
                   <div
                     key={row.address}
-                    className="flex items-center justify-between rounded-md border border-border p-3"
+                    // className="flex items-center justify-between rounded-md border border-border p-3"
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-background/40 p-4"
                   >
                     <div>
                       <div className="font-medium text-foreground">{row.label}</div>
@@ -246,28 +318,33 @@ export default function OverviewPage() {
             </CardContent>
           </Card>
 
-          <Card className="mt-6 border-border">
+          {/* <Card className="mt-6 border-border"> */}
+          <Card className="mt-6 border-white/10 bg-card/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">  
             <CardHeader>
               <CardTitle className="text-base font-medium">Product Snapshot</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-md border border-border p-4">
+              {/* <div className="rounded-md border border-border p-4"> */}
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Underlying</div>
                 <div className="mt-1 font-medium text-foreground">
                   UOB APAC Green REIT ETF (GRN.SI)
                 </div>
               </div>
-              <div className="rounded-md border border-border p-4">
+              {/* <div className="rounded-md border border-border p-4"> */}
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Structure</div>
                 <div className="mt-1 font-medium text-foreground">1:1 tokenized digital twin</div>
               </div>
-              <div className="rounded-md border border-border p-4">
+              {/* <div className="rounded-md border border-border p-4"> */}
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Custody model</div>
                 <div className="mt-1 font-medium text-foreground">
                   Off-chain ETF under custody / nominee
                 </div>
               </div>
-              <div className="rounded-md border border-border p-4">
+              {/* <div className="rounded-md border border-border p-4"> */}
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Reconciliation</div>
                 <div className="mt-1 font-medium text-foreground">
                   Token supply vs off-chain ETF units
