@@ -6,32 +6,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useWallet } from "@/hooks/use-wallet"
-import { getRoleStatuses } from "@/lib/web3/contract"
+import { getRoleStatuses, getTokenName, getTokenSymbol } from "@/lib/web3/contract"
 import { getContractConfig, formatAddress, getExplorerAddressUrl } from "@/lib/web3/client"
 import type { RoleStatus } from "@/types/ethereum"
 import {
-  ShieldAlert,
-  ShieldCheck,
-  Lock,
-  Eye,
-  FileSearch,
-  Database,
-  RefreshCw,
+  FileCheck,
   Wallet,
   Globe,
   ExternalLink,
   CheckCircle,
   XCircle,
-  AlertTriangle,
-  Scale,
-  GitBranch,
-  Building2,
+  Shield,
+  FileCode,
 } from "lucide-react"
 
-interface GovernanceData {
+interface ProductComplianceData {
+  tokenName: string
+  tokenSymbol: string
   adminWallet: string
   adminRoles: RoleStatus | null
-  connectedRoles: RoleStatus | null
 }
 
 function RoleBadge({
@@ -55,59 +48,14 @@ function RoleBadge({
   )
 }
 
-function RiskCard({
-  icon: Icon,
-  title,
-  description,
-  mitigations,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  description: string
-  mitigations: string[]
-}) {
-  return (
-    <Card className="border-border">
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
-            <Icon className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <CardTitle className="text-base">{title}</CardTitle>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{description}</p>
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Mitigations
-          </div>
-          <div className="space-y-2">
-            {mitigations.map((item, idx) => (
-              <div
-                key={idx}
-                className="flex items-start gap-2 rounded-md border border-border p-3 text-sm"
-              >
-                <CheckCircle className="mt-0.5 h-4 w-4 text-primary" />
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-export default function RiskGovernancePage() {
+export default function ProductCompliancePage() {
   const { isConnected, address, isCorrectNetwork, chainId } = useWallet()
-  const [data, setData] = useState<GovernanceData | null>(null)
+  const [data, setData] = useState<ProductComplianceData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   let contractConfig: { address: string; networkName: string; chainId: number; explorerUrl: string } | null =
     null
+
   try {
     contractConfig = getContractConfig()
   } catch {
@@ -115,50 +63,51 @@ export default function RiskGovernancePage() {
   }
 
   useEffect(() => {
-    async function loadGovernanceData() {
+    async function load() {
       setIsLoading(true)
+
       try {
         const adminWallet = process.env.NEXT_PUBLIC_ADMIN_ADDRESS || ""
 
-        const [adminRoles, connectedRoles] = await Promise.all([
+        const [tokenName, tokenSymbol, adminRoles] = await Promise.all([
+          getTokenName().catch(() => "GCORE Token"),
+          getTokenSymbol().catch(() => "GCORE"),
           adminWallet ? getRoleStatuses(adminWallet).catch(() => null) : Promise.resolve(null),
-          address && isConnected && isCorrectNetwork
-            ? getRoleStatuses(address).catch(() => null)
-            : Promise.resolve(null),
         ])
 
         setData({
+          tokenName,
+          tokenSymbol,
           adminWallet,
           adminRoles,
-          connectedRoles,
         })
       } catch (err) {
-        console.error("Error loading governance data:", err)
-        setData(null)
+        console.error("Failed to load product/compliance data:", err)
+        setData({
+          tokenName: "GCORE Token",
+          tokenSymbol: "GCORE",
+          adminWallet: process.env.NEXT_PUBLIC_ADMIN_ADDRESS || "",
+          adminRoles: null,
+        })
       } finally {
         setIsLoading(false)
       }
     }
 
-    loadGovernanceData()
-  }, [address, isConnected, isCorrectNetwork])
+    load()
+  }, [])
 
   return (
     <DashboardLayout
-      title="Risk & Governance"
-      description="Operational controls, compliance logic, and governance structure for GCORE"
+      title="Product & Compliance"
+      description="Minimal product specification and compliance model overview"
     >
       <Card className="mb-6 border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
-              <ShieldAlert className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Governance Status</CardTitle>
-              <CardDescription>Live wallet, network, and role-based control status</CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-lg">Live Contract Status</CardTitle>
+          <CardDescription>
+            Lightweight view of the deployed token and current configuration
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -209,7 +158,27 @@ export default function RiskGovernancePage() {
 
             <div className="rounded-lg border border-border p-4">
               <div className="mb-2 flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <FileCode className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Contract</span>
+              </div>
+              {contractConfig ? (
+                <a
+                  href={`${contractConfig.explorerUrl}/address/${contractConfig.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm font-mono text-primary hover:underline"
+                >
+                  {formatAddress(contractConfig.address, 8)}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <span className="text-sm text-muted-foreground">Not configured</span>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Admin Wallet</span>
               </div>
               {isLoading ? (
@@ -228,228 +197,142 @@ export default function RiskGovernancePage() {
                 <span className="text-sm text-muted-foreground">Not configured</span>
               )}
             </div>
-
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Lock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Contract Model</span>
-              </div>
-              <div className="text-sm font-medium text-foreground">AccessControl Roles</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                DEFAULT_ADMIN_ROLE, OPERATOR_ROLE, COMPLIANCE_ROLE, ORACLE_ROLE
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-3 text-sm font-medium text-foreground">Configured Admin Roles</div>
-              <div className="flex flex-wrap gap-2">
-                {isLoading ? (
-                  <Skeleton className="h-6 w-40" />
-                ) : (
-                  <>
-                    <RoleBadge label="DEFAULT_ADMIN_ROLE" active={!!data?.adminRoles?.defaultAdmin} />
-                    <RoleBadge label="OPERATOR_ROLE" active={!!data?.adminRoles?.operator} />
-                    <RoleBadge label="COMPLIANCE_ROLE" active={!!data?.adminRoles?.compliance} />
-                    <RoleBadge label="ORACLE_ROLE" active={!!data?.adminRoles?.oracle} />
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-3 text-sm font-medium text-foreground">Connected Wallet Roles</div>
-              <div className="flex flex-wrap gap-2">
-                {isLoading ? (
-                  <Skeleton className="h-6 w-40" />
-                ) : (
-                  <>
-                    <RoleBadge label="DEFAULT_ADMIN_ROLE" active={!!data?.connectedRoles?.defaultAdmin} />
-                    <RoleBadge label="OPERATOR_ROLE" active={!!data?.connectedRoles?.operator} />
-                    <RoleBadge label="COMPLIANCE_ROLE" active={!!data?.connectedRoles?.compliance} />
-                    <RoleBadge label="ORACLE_ROLE" active={!!data?.connectedRoles?.oracle} />
-                  </>
-                )}
-              </div>
-            </div>
           </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <RiskCard
-          icon={TrendingUp}
-          title="Market Risk"
-          description="GCORE token value is economically linked to the underlying ETF exposure. Price movements in the ETF, sector volatility, or broader real estate market weakness can affect token holder outcomes."
-          mitigations={[
-            "Use an ETF wrapper rather than direct physical property exposure for more transparent reference pricing.",
-            "Provide clear investor disclosure that token performance reflects underlying ETF economics, not a separate standalone crypto asset.",
-            "Support periodic NAV/reference updates and transparent product factsheet disclosure.",
-          ]}
-        />
+        <Card className="border-border">
+          <CardHeader>
+            <CardTitle className="text-base">Product Summary</CardTitle>
+            <CardDescription>Minimal token and structure overview</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Name</span>
+              {isLoading ? (
+                <Skeleton className="h-5 w-24" />
+              ) : (
+                <span className="text-sm font-medium text-foreground">
+                  {data?.tokenName || "GCORE Token"}
+                </span>
+              )}
+            </div>
 
-        <RiskCard
-          icon={Building2}
-          title="Custody and Structure Risk"
-          description="GCORE uses a digital twin model in which ETF units are held off-chain while tokens are issued on-chain. Any mismatch between custody records and token supply creates operational and investor risk."
-          mitigations={[
-            "Maintain reconciliation between off-chain ETF units, token supply, and investor records.",
-            "Use controlled custody / nominee arrangements with designated operating procedures.",
-            "Restrict minting and burning to authorized roles only.",
-          ]}
-        />
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Symbol</span>
+              {isLoading ? (
+                <Skeleton className="h-5 w-16" />
+              ) : (
+                <Badge variant="outline" className="border-primary text-primary">
+                  {data?.tokenSymbol || "GCORE"}
+                </Badge>
+              )}
+            </div>
 
-        <RiskCard
-          icon={FileSearch}
-          title="Compliance and Eligibility Risk"
-          description="Because GCORE is framed as a security-style tokenized capital markets product, wallet eligibility and transfers must remain controlled. Unauthorized holding or transfer would weaken the compliance model."
-          mitigations={[
-            "Whitelist wallets only after onboarding and eligibility checks.",
-            "Enforce transfer restrictions at the smart-contract level.",
-            "Use role-based permissions for compliance administration.",
-          ]}
-        />
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Underlying Asset</span>
+              <span className="text-sm font-medium text-foreground">UOB APAC Green REIT ETF (GRN.SI)</span>
+            </div>
 
-        <RiskCard
-          icon={AlertTriangle}
-          title="Smart Contract and Operational Risk"
-          description="Implementation bugs, role misconfiguration, or process failures could affect mint, burn, transfer restriction, or administrative actions."
-          mitigations={[
-            "Keep the contract design simple and aligned with required demo functions only.",
-            "Separate admin, operator, compliance, and oracle functions into distinct roles.",
-            "Use blocked transaction logging and on-chain event visibility for monitoring and review.",
-          ]}
-        />
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Standard</span>
+              <span className="text-sm font-medium text-foreground">ERC20-compatible</span>
+            </div>
 
-        <RiskCard
-          icon={RefreshCw}
-          title="Reconciliation and Process Risk"
-          description="Tokenized products require coordination between blockchain actions and off-chain actions such as subscription, redemption, custody updates, and investor servicing."
-          mitigations={[
-            "Define explicit subscription, redemption, and secondary transfer workflows.",
-            "Treat reconciliation as a control function, not a back-office afterthought.",
-            "Use dashboard visibility for token supply, whitelist status, and transaction monitoring.",
-          ]}
-        />
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Structure</span>
+              <span className="text-sm font-medium text-foreground">1:1 digital twin wrapper</span>
+            </div>
 
-        <RiskCard
-          icon={Globe}
-          title="Regulatory and Jurisdiction Risk"
-          description="Tokenization does not remove securities regulation. The product remains subject to the legal and compliance framing of the chosen jurisdiction and investor base."
-          mitigations={[
-            "Frame the product within a Singapore-focused regulatory context.",
-            "Limit target investors to eligible / accredited participants in the demo design.",
-            "Keep the structure as a practical digital twin rather than a legally ambiguous direct-title token.",
-          ]}
-        />
+            <div className="flex items-center justify-between py-3">
+              <span className="text-sm text-muted-foreground">Investor Frame</span>
+              <Badge className="bg-amber-500/20 text-amber-500 hover:bg-amber-500/30">
+                Eligible / accredited
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border">
+          <CardHeader>
+            <CardTitle className="text-base">Compliance Model</CardTitle>
+            <CardDescription>Matches the current smart-contract design</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Access Model</div>
+              <p className="text-xs text-muted-foreground">
+                GCORE uses wallet-based identity and AccessControl roles rather than a simple owner-only model.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Transfer Control</div>
+              <p className="text-xs text-muted-foreground">
+                Transfers are intended to be restricted to approved wallets through whitelist enforcement and blocked-transfer logic.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Lifecycle Controls</div>
+              <p className="text-xs text-muted-foreground">
+                Minting and burning are controlled functions intended to mirror off-chain subscription and redemption activity.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Administrative Roles</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <RoleBadge label="DEFAULT_ADMIN_ROLE" active={!!data?.adminRoles?.defaultAdmin} />
+                <RoleBadge label="OPERATOR_ROLE" active={!!data?.adminRoles?.operator} />
+                <RoleBadge label="COMPLIANCE_ROLE" active={!!data?.adminRoles?.compliance} />
+                <RoleBadge label="ORACLE_ROLE" active={!!data?.adminRoles?.oracle} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="mt-6 border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
-              <GitBranch className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Governance Framework</CardTitle>
-              <CardDescription>How responsibilities are separated across the token lifecycle</CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-base">What This Page Covers</CardTitle>
+          <CardDescription>Kept intentionally lightweight for demo stability</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 lg:grid-cols-4">
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-2 text-sm font-medium text-foreground">DEFAULT_ADMIN_ROLE</div>
-              <p className="text-xs text-muted-foreground">
-                Governs high-level permissions and can manage other roles. Best treated as the super-admin authority.
-              </p>
-            </div>
+        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-border p-4">
+            <FileCheck className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Product Identity</div>
+            <p className="text-xs text-muted-foreground">
+              Token name, symbol, structure, and underlying asset.
+            </p>
+          </div>
 
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-2 text-sm font-medium text-foreground">OPERATOR_ROLE</div>
-              <p className="text-xs text-muted-foreground">
-                Handles operational token actions such as minting, burning, and controlled transfer attempts where applicable.
-              </p>
-            </div>
+          <div className="rounded-lg border border-border p-4">
+            <Shield className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Compliance Logic</div>
+            <p className="text-xs text-muted-foreground">
+              Role-based admin model plus whitelist-based transfer restrictions.
+            </p>
+          </div>
 
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-2 text-sm font-medium text-foreground">COMPLIANCE_ROLE</div>
-              <p className="text-xs text-muted-foreground">
-                Manages whitelist controls and supports the compliance-by-design model for eligible wallet access.
-              </p>
-            </div>
+          <div className="rounded-lg border border-border p-4">
+            <Wallet className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Wallet-Native Access</div>
+            <p className="text-xs text-muted-foreground">
+              Connected wallet determines access instead of password-based profiles.
+            </p>
+          </div>
 
-            <div className="rounded-lg border border-border p-4">
-              <div className="mb-2 text-sm font-medium text-foreground">ORACLE_ROLE</div>
-              <p className="text-xs text-muted-foreground">
-                Supports controlled update functions such as NAV-related values or reference data where implemented.
-              </p>
-            </div>
+          <div className="rounded-lg border border-border p-4">
+            <Globe className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Demo Context</div>
+            <p className="text-xs text-muted-foreground">
+              Suitable for the project dashboard without adding heavy runtime dependencies.
+            </p>
           </div>
         </CardContent>
       </Card>
-
-      <Card className="mt-6 border-border">
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15">
-              <Eye className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Control Principles</CardTitle>
-              <CardDescription>Core governance ideas reflected in the product design</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border border-border p-4">
-              <ShieldCheck className="mb-3 h-5 w-5 text-primary" />
-              <div className="mb-1 text-sm font-medium text-foreground">Compliance by Design</div>
-              <p className="text-xs text-muted-foreground">
-                Transfer restrictions and wallet eligibility are embedded into token operations.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-border p-4">
-              <Database className="mb-3 h-5 w-5 text-primary" />
-              <div className="mb-1 text-sm font-medium text-foreground">Reconciliation Discipline</div>
-              <p className="text-xs text-muted-foreground">
-                Token supply should remain aligned with off-chain holdings and servicing records.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-border p-4">
-              <Scale className="mb-3 h-5 w-5 text-primary" />
-              <div className="mb-1 text-sm font-medium text-foreground">Role Separation</div>
-              <p className="text-xs text-muted-foreground">
-                Governance is stronger when admin, operations, compliance, and data update rights are separated.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-border p-4">
-              <Lock className="mb-3 h-5 w-5 text-primary" />
-              <div className="mb-1 text-sm font-medium text-foreground">Controlled Transparency</div>
-              <p className="text-xs text-muted-foreground">
-                Events and dashboards improve visibility without removing the need for off-chain controls.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {!isConnected && (
-        <div className="mt-6 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          Connect MetaMask to see the connected wallet’s live role profile. Read-only governance information remains available.
-        </div>
-      )}
-
-      {isConnected && !isCorrectNetwork && (
-        <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600">
-          Connected wallet is on the wrong network. Switch to Sepolia to view the correct live role status.
-        </div>
-      )}
     </DashboardLayout>
   )
 }
