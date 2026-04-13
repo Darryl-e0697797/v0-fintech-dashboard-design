@@ -14,6 +14,11 @@ import {
   isWhitelisted,
   setWhitelistStatus,
 } from "@/lib/web3/contract"
+import {
+  getSavedWallets,
+  findSavedWallet,
+  type SavedWalletEntry,
+} from "@/lib/wallet-registry"
 import { formatAddress, getExplorerAddressUrl } from "@/lib/web3/client"
 import type { RoleStatus } from "@/types/ethereum"
 import {
@@ -34,12 +39,18 @@ interface WhitelistRow {
   txHash: string
 }
 
+function isValidAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim())
+}
+
 export default function WhitelistPage() {
   const { isConnected, address, isCorrectNetwork } = useWallet()
 
   const [viewerRoles, setViewerRoles] = useState<RoleStatus | null>(null)
   const [rows, setRows] = useState<WhitelistRow[]>([])
   const [rowsLoading, setRowsLoading] = useState(false)
+
+  const [savedWallets, setSavedWallets] = useState<SavedWalletEntry[]>([])
 
   const [targetWallet, setTargetWallet] = useState("")
   const [targetStatus, setTargetStatus] = useState<boolean | null>(null)
@@ -59,6 +70,10 @@ export default function WhitelistPage() {
     if (viewerRoles.oracle) return "Oracle Admin"
     return "Read-only wallet"
   }, [viewerRoles])
+
+  const savedWalletInfo = useMemo(() => {
+    return targetWallet ? findSavedWallet(targetWallet) : null
+  }, [targetWallet])
 
   async function loadViewerRoles() {
     if (!address || !isConnected || !isCorrectNetwork) {
@@ -90,13 +105,14 @@ export default function WhitelistPage() {
 
   async function lookupWallet(wallet: string) {
     const trimmed = wallet.trim()
+
     if (!trimmed) {
       setError("Enter a wallet address.")
       setTargetStatus(null)
       return
     }
 
-    if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+    if (!isValidAddress(trimmed)) {
       setError("Enter a valid wallet address.")
       setTargetStatus(null)
       return
@@ -126,7 +142,7 @@ export default function WhitelistPage() {
       return
     }
 
-    if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+    if (!isValidAddress(trimmed)) {
       setError("Enter a valid wallet address.")
       return
     }
@@ -141,7 +157,7 @@ export default function WhitelistPage() {
         `${status ? "Adding wallet to" : "Removing wallet from"} whitelist. Waiting for confirmation: ${tx.hash}`
       )
       await tx.wait()
-      setFeedback(`Whitelist updated successfully.`)
+      setFeedback("Whitelist updated successfully.")
       setTargetStatus(status)
       await loadWhitelistState()
     } catch (err: any) {
@@ -158,6 +174,7 @@ export default function WhitelistPage() {
 
   useEffect(() => {
     loadWhitelistState()
+    setSavedWallets(getSavedWallets())
   }, [])
 
   return (
@@ -165,7 +182,6 @@ export default function WhitelistPage() {
       title="Whitelist"
       description="Wallet eligibility and whitelist administration"
     >
-      {/* <Card className="mb-6 border-border"> */}
       <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
         <CardHeader>
           <CardTitle className="text-lg">Whitelist Access Status</CardTitle>
@@ -175,7 +191,6 @@ export default function WhitelistPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-4">
-            {/* <div className="rounded-lg border border-border p-4"> */}
             <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-muted-foreground" />
@@ -186,7 +201,6 @@ export default function WhitelistPage() {
               </div>
             </div>
 
-            {/* <div className="rounded-lg border border-border p-4"> */}
             <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Globe className="h-4 w-4 text-muted-foreground" />
@@ -197,7 +211,6 @@ export default function WhitelistPage() {
               </div>
             </div>
 
-            {/* <div className="rounded-lg border border-border p-4"> */}
             <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Lock className="h-4 w-4 text-muted-foreground" />
@@ -206,18 +219,20 @@ export default function WhitelistPage() {
               <div className="text-sm font-medium text-foreground">{connectedProfileLabel}</div>
             </div>
 
-            {/* <div className="rounded-lg border border-border p-4"> */}
             <div className="rounded-xl border border-white/10 bg-background/40 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Shield className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Whitelist Permissions</span>
               </div>
               {canManageWhitelist ? (
-                <Badge className="bg-primary/15 text-primary border-primary/30">
+                <Badge className="border-primary/30 bg-primary/15 text-primary">
                   Can Manage
                 </Badge>
               ) : (
-                <Badge variant="outline" className="border-border text-muted-foreground">
+                <Badge
+                  variant="outline"
+                  className="border-white/10 bg-background/60 text-muted-foreground"
+                >
                   Read-only
                 </Badge>
               )}
@@ -228,26 +243,41 @@ export default function WhitelistPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge
                 variant={viewerRoles.defaultAdmin ? "default" : "outline"}
-                // className={viewerRoles.defaultAdmin ? "bg-primary/15 text-primary border-primary/30" : ""}
-                className={viewerRoles.defaultAdmin ? "bg-primary/15 text-primary border-primary/30" : "border-white/10 bg-background/60 text-muted-foreground"}
+                className={
+                  viewerRoles.defaultAdmin
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
               >
                 DEFAULT_ADMIN_ROLE
               </Badge>
               <Badge
                 variant={viewerRoles.compliance ? "default" : "outline"}
-                className={viewerRoles.compliance ? "bg-primary/15 text-primary border-primary/30" : ""}
+                className={
+                  viewerRoles.compliance
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
               >
                 COMPLIANCE_ROLE
               </Badge>
               <Badge
                 variant={viewerRoles.operator ? "default" : "outline"}
-                className={viewerRoles.operator ? "bg-primary/15 text-primary border-primary/30" : ""}
+                className={
+                  viewerRoles.operator
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
               >
                 OPERATOR_ROLE
               </Badge>
               <Badge
                 variant={viewerRoles.oracle ? "default" : "outline"}
-                className={viewerRoles.oracle ? "bg-primary/15 text-primary border-primary/30" : ""}
+                className={
+                  viewerRoles.oracle
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
               >
                 ORACLE_ROLE
               </Badge>
@@ -256,9 +286,8 @@ export default function WhitelistPage() {
         </CardContent>
       </Card>
 
-      {/* <div className="grid gap-6 lg:grid-cols-2"> */}
-      <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">  
-        <Card className="border-border">
+      <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Wallet Lookup</CardTitle>
             <CardDescription>
@@ -266,6 +295,29 @@ export default function WhitelistPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {savedWallets.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Quick fill from saved wallets</div>
+                <div className="flex flex-wrap gap-2">
+                  {savedWallets.map((wallet) => (
+                    <Button
+                      key={wallet.address}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => {
+                        setTargetWallet(wallet.address)
+                        lookupWallet(wallet.address)
+                      }}
+                    >
+                      {wallet.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <Input
                 placeholder="Enter wallet address"
@@ -284,17 +336,29 @@ export default function WhitelistPage() {
             </div>
 
             {targetWallet.trim() && (
-              <div className="rounded-lg border border-border p-4">
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
                 <div className="mb-2 text-xs text-muted-foreground">Target Wallet</div>
                 <div className="break-all font-mono text-sm text-foreground">{targetWallet}</div>
+
+                {savedWalletInfo && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Saved as: {savedWalletInfo.label}
+                    {savedWalletInfo.intendedRole ? ` • ${savedWalletInfo.intendedRole}` : ""}
+                  </div>
+                )}
 
                 <div className="mt-4 flex items-center gap-2">
                   {targetLoading ? (
                     <Skeleton className="h-6 w-28" />
                   ) : targetStatus === null ? (
-                    <Badge variant="outline">No status loaded</Badge>
+                    <Badge
+                      variant="outline"
+                      className="border-white/10 bg-background/60 text-muted-foreground"
+                    >
+                      No status loaded
+                    </Badge>
                   ) : targetStatus ? (
-                    <Badge className="bg-primary/15 text-primary border-primary/30">
+                    <Badge className="border-primary/30 bg-primary/15 text-primary">
                       <CheckCircle className="mr-1 h-3 w-3" />
                       Whitelisted
                     </Badge>
@@ -306,7 +370,7 @@ export default function WhitelistPage() {
                   )}
                 </div>
 
-                {/^0x[a-fA-F0-9]{40}$/.test(targetWallet.trim()) && (
+                {isValidAddress(targetWallet.trim()) && (
                   <a
                     href={getExplorerAddressUrl(targetWallet.trim())}
                     target="_blank"
@@ -339,7 +403,7 @@ export default function WhitelistPage() {
                 </Button>
               </div>
             ) : (
-              <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+              <div className="rounded-md border border-white/10 bg-background/40 p-3 text-sm text-muted-foreground">
                 Requires COMPLIANCE_ROLE or DEFAULT_ADMIN_ROLE to update whitelist status.
               </div>
             )}
@@ -358,7 +422,7 @@ export default function WhitelistPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Whitelist Rules</CardTitle>
             <CardDescription>
@@ -366,23 +430,23 @@ export default function WhitelistPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
               Only approved wallets should be able to receive or hold tokens.
             </div>
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
               Whitelist status is part of the compliance-by-design model.
             </div>
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
               Blocked transfers should appear when tokens are sent to ineligible wallets.
             </div>
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
               Compliance or super-admin wallets should manage whitelist updates.
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="mt-6 border-border">
+      <Card className="mt-6 border-white/10 bg-card/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
         <CardHeader>
           <CardTitle className="text-base">Current Whitelist State</CardTitle>
           <CardDescription>
@@ -397,47 +461,58 @@ export default function WhitelistPage() {
               <Skeleton className="h-16 w-full" />
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
+            <div className="rounded-md border border-white/10 bg-background/40 p-4 text-sm text-muted-foreground">
               No whitelist events found yet.
             </div>
           ) : (
-            rows.map((row) => (
-              <div
-                key={`${row.address}-${row.lastBlock}`}
-                className="flex flex-col gap-3 rounded-lg border border-border p-4 md:flex-row md:items-center md:justify-between"
-              >
-                <div>
-                  <div className="font-mono text-sm text-foreground">{row.address}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Last block: {row.lastBlock}
+            rows.map((row) => {
+              const saved = findSavedWallet(row.address)
+              return (
+                <div
+                  key={`${row.address}-${row.lastBlock}`}
+                  className="flex flex-col gap-3 rounded-xl border border-white/10 bg-background/40 p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="font-mono text-sm text-foreground">{row.address}</div>
+                    {saved && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {saved.label}
+                        {saved.intendedRole ? ` • ${saved.intendedRole}` : ""}
+                      </div>
+                    )}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Last block: {row.lastBlock}
+                    </div>
+                    <a
+                      href={getExplorerAddressUrl(row.address)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      View wallet
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
                   </div>
-                  <a
-                    href={getExplorerAddressUrl(row.address)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    View wallet
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
 
-                <div className="text-right">
-                  {row.status ? (
-                    <Badge className="bg-primary/15 text-primary border-primary/30">
-                      <CheckCircle className="mr-1 h-3 w-3" />
-                      Whitelisted
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="border-amber-500/30 text-amber-600">
-                      <XCircle className="mr-1 h-3 w-3" />
-                      Not Whitelisted
-                    </Badge>
-                  )}
-                  <div className="mt-2 text-xs text-muted-foreground">Tx: {formatAddress(row.txHash, 8)}</div>
+                  <div className="text-right">
+                    {row.status ? (
+                      <Badge className="border-primary/30 bg-primary/15 text-primary">
+                        <CheckCircle className="mr-1 h-3 w-3" />
+                        Whitelisted
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-amber-500/30 text-amber-600">
+                        <XCircle className="mr-1 h-3 w-3" />
+                        Not Whitelisted
+                      </Badge>
+                    )}
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Tx: {formatAddress(row.txHash, 8)}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </CardContent>
       </Card>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +13,17 @@ import {
   mintTokens,
   transferTokens,
 } from "@/lib/web3/contract"
+import { getSavedWallets, type SavedWalletEntry } from "@/lib/wallet-registry"
+import { formatAddress } from "@/lib/web3/client"
 import type { RoleStatus } from "@/types/ethereum"
+import {
+  Coins,
+  Flame,
+  Send,
+  ShieldAlert,
+  Wallet,
+  ArrowRightLeft,
+} from "lucide-react"
 
 function RoleBadge({
   label,
@@ -24,14 +34,44 @@ function RoleBadge({
 }) {
   return (
     <span
-      className={`rounded px-2 py-1 text-xs ${
+      className={`rounded-full px-3 py-1.5 text-xs font-medium ${
         active
-          ? "bg-primary/10 text-primary"
-          : "border border-border text-muted-foreground"
+          ? "border border-primary/30 bg-primary/10 text-primary"
+          : "border border-white/10 bg-background/60 text-muted-foreground"
       }`}
     >
       {label}
     </span>
+  )
+}
+
+function SavedWalletQuickFill({
+  wallets,
+  onSelect,
+}: {
+  wallets: SavedWalletEntry[]
+  onSelect: (address: string) => void
+}) {
+  if (wallets.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-muted-foreground">Quick fill from saved wallets</div>
+      <div className="flex flex-wrap gap-2">
+        {wallets.map((wallet) => (
+          <Button
+            key={wallet.address}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={() => onSelect(wallet.address)}
+          >
+            {wallet.label}
+          </Button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -40,6 +80,7 @@ export default function TokenActionsPage() {
 
   const [roles, setRoles] = useState<RoleStatus | null>(null)
   const [loadingRoles, setLoadingRoles] = useState(false)
+  const [savedWallets, setSavedWallets] = useState<SavedWalletEntry[]>([])
 
   const [mintTo, setMintTo] = useState("")
   const [mintAmount, setMintAmount] = useState("")
@@ -57,6 +98,10 @@ export default function TokenActionsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSavedWallets(getSavedWallets())
+  }, [])
 
   useEffect(() => {
     async function loadRoles() {
@@ -82,6 +127,11 @@ export default function TokenActionsPage() {
 
   const canOperate = !!roles?.defaultAdmin || !!roles?.operator
 
+  const savedWalletSummary = useMemo(() => {
+    if (savedWallets.length === 0) return "No saved wallets"
+    return `${savedWallets.length} saved wallet${savedWallets.length > 1 ? "s" : ""}`
+  }, [savedWallets])
+
   function clearMessages() {
     setFeedback(null)
     setError(null)
@@ -89,24 +139,30 @@ export default function TokenActionsPage() {
 
   function validateAddress(value: string, label: string) {
     const trimmed = value.trim()
+
     if (!trimmed) {
       throw new Error(`${label} is required.`)
     }
+
     if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
       throw new Error(`${label} must be a valid wallet address.`)
     }
+
     return trimmed
   }
 
   function validateAmount(value: string) {
     const trimmed = value.trim()
+
     if (!trimmed) {
       throw new Error("Amount is required.")
     }
+
     const numeric = Number(trimmed)
     if (!Number.isFinite(numeric) || numeric <= 0) {
       throw new Error("Amount must be greater than 0.")
     }
+
     return trimmed
   }
 
@@ -189,11 +245,7 @@ export default function TokenActionsPage() {
       setOpAmount("")
     } catch (err) {
       console.error(err)
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Operator transfer attempt failed."
-      )
+      setError(err instanceof Error ? err.message : "Operator transfer attempt failed.")
     } finally {
       setIsSubmitting(false)
     }
@@ -204,32 +256,6 @@ export default function TokenActionsPage() {
       title="Token Actions"
       description="Mint, burn, transfer, and blocked-transfer workflow controls"
     >
-      {/* <Card className="mb-6 border-border">
-        <CardContent className="p-4 text-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-              Connected Wallet: {address || "Not connected"}
-            </span>
-            <span className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-              Network: {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
-            </span>
-
-            {loadingRoles ? (
-              <span className="rounded border border-border px-2 py-1 text-xs text-muted-foreground">
-                Loading roles...
-              </span>
-            ) : (
-              <>
-                <RoleBadge label="Admin" active={!!roles?.defaultAdmin} />
-                <RoleBadge label="Operator" active={!!roles?.operator} />
-                <RoleBadge label="Compliance" active={!!roles?.compliance} />
-                <RoleBadge label="Oracle" active={!!roles?.oracle} />
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card> */}
-
       <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
         <CardContent className="p-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -247,10 +273,13 @@ export default function TokenActionsPage() {
 
             <div className="flex flex-wrap gap-2">
               <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
-                Wallet: {address || "Not connected"}
+                Wallet: {address ? formatAddress(address) : "Not connected"}
               </span>
               <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
                 Network: {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
+              </span>
+              <span className="rounded-full border border-white/10 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground">
+                {savedWalletSummary}
               </span>
 
               {loadingRoles ? (
@@ -268,7 +297,7 @@ export default function TokenActionsPage() {
             </div>
           </div>
         </CardContent>
-      </Card>      
+      </Card>
 
       {feedback && (
         <Card className="mb-6 border-primary/30 bg-primary/10">
@@ -282,13 +311,14 @@ export default function TokenActionsPage() {
         </Card>
       )}
 
-      {/* <div className="grid gap-6 lg:grid-cols-2"> */}
       <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
-        <Card className="border-border">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Self Transfer</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
+            <SavedWalletQuickFill wallets={savedWallets} onSelect={setTransferTo} />
+
             <Input
               placeholder="Recipient wallet address"
               value={transferTo}
@@ -308,19 +338,20 @@ export default function TokenActionsPage() {
               onClick={handleTransfer}
               disabled={!isConnected || !isCorrectNetwork || isSubmitting}
             >
-              {isSubmitting ? "Submitting..." : "Transfer tokens"}
+              <Send className="mr-2 h-4 w-4" />
+              {isSubmitting ? "Submitting..." : "Transfer Tokens"}
             </Button>
           </CardContent>
         </Card>
 
-        <Card className="border-border">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Permissions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div>Mint and burn require OPERATOR_ROLE or DEFAULT_ADMIN_ROLE.</div>
             <div>
-              Operator transfer attempt is intended for blocked-transfer / compliance workflow testing.
+              Operator transfer attempt is intended for blocked-transfer and compliance workflow testing.
             </div>
             <div>
               Use this page with:
@@ -334,11 +365,13 @@ export default function TokenActionsPage() {
 
         {canOperate && (
           <>
-            <Card className="border-border">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-base">Mint</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
+                <SavedWalletQuickFill wallets={savedWallets} onSelect={setMintTo} />
+
                 <Input
                   placeholder="Recipient wallet address"
                   value={mintTo}
@@ -358,16 +391,19 @@ export default function TokenActionsPage() {
                   onClick={handleMint}
                   disabled={!isConnected || !isCorrectNetwork || isSubmitting}
                 >
-                  {isSubmitting ? "Submitting..." : "Mint tokens"}
+                  <Coins className="mr-2 h-4 w-4" />
+                  {isSubmitting ? "Submitting..." : "Mint Tokens"}
                 </Button>
               </CardContent>
             </Card>
 
-            <Card className="border-border">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-base">Burn</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
+                <SavedWalletQuickFill wallets={savedWallets} onSelect={setBurnFrom} />
+
                 <Input
                   placeholder="Wallet address to burn from"
                   value={burnFrom}
@@ -388,44 +424,51 @@ export default function TokenActionsPage() {
                   onClick={handleBurn}
                   disabled={!isConnected || !isCorrectNetwork || isSubmitting}
                 >
-                  {isSubmitting ? "Submitting..." : "Burn tokens"}
+                  <Flame className="mr-2 h-4 w-4" />
+                  {isSubmitting ? "Submitting..." : "Burn Tokens"}
                 </Button>
               </CardContent>
             </Card>
 
-            <Card className="border-border lg:col-span-2">
+            <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle className="text-base">Operator Transfer Attempt</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-3">
-                <Input
-                  placeholder="From wallet address"
-                  value={opFrom}
-                  onChange={(e) => setOpFrom(e.target.value)}
-                  className="font-mono"
-                />
-                <Input
-                  placeholder="To wallet address"
-                  value={opTo}
-                  onChange={(e) => setOpTo(e.target.value)}
-                  className="font-mono"
-                />
-                <div className="space-y-3">
+              <CardContent className="space-y-4">
+                <SavedWalletQuickFill wallets={savedWallets} onSelect={setOpFrom} />
+                <SavedWalletQuickFill wallets={savedWallets} onSelect={setOpTo} />
+
+                <div className="grid gap-3 md:grid-cols-3">
                   <Input
-                    placeholder="Amount"
-                    value={opAmount}
-                    onChange={(e) => setOpAmount(e.target.value)}
+                    placeholder="From wallet address"
+                    value={opFrom}
+                    onChange={(e) => setOpFrom(e.target.value)}
+                    className="font-mono"
                   />
-                  <Button
-                    className="w-full rounded-xl font-semibold"
-                    onClick={handleOperatorTransfer}
-                    disabled={!isConnected || !isCorrectNetwork || isSubmitting}
-                  >
-                    {isSubmitting ? "Submitting..." : "Attempt transfer"}
-                  </Button>
+                  <Input
+                    placeholder="To wallet address"
+                    value={opTo}
+                    onChange={(e) => setOpTo(e.target.value)}
+                    className="font-mono"
+                  />
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Amount"
+                      value={opAmount}
+                      onChange={(e) => setOpAmount(e.target.value)}
+                    />
+                    <Button
+                      className="w-full rounded-xl font-semibold"
+                      onClick={handleOperatorTransfer}
+                      disabled={!isConnected || !isCorrectNetwork || isSubmitting}
+                    >
+                      <ArrowRightLeft className="mr-2 h-4 w-4" />
+                      {isSubmitting ? "Submitting..." : "Attempt Transfer"}
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="md:col-span-3 text-xs text-muted-foreground">
+                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
                   Required role: OPERATOR_ROLE or DEFAULT_ADMIN_ROLE. Use this to demonstrate
                   blocked transfers and related on-chain event logging.
                 </div>
@@ -435,7 +478,7 @@ export default function TokenActionsPage() {
         )}
 
         {!canOperate && (
-          <Card className="border-border lg:col-span-2">
+          <Card className="lg:col-span-2">
             <CardHeader>
               <CardTitle className="text-base">Operator Functions Locked</CardTitle>
             </CardHeader>
@@ -449,12 +492,14 @@ export default function TokenActionsPage() {
 
       {!isConnected && (
         <div className="mt-6 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          <Wallet className="mr-2 inline h-4 w-4" />
           Connect MetaMask to perform token actions.
         </div>
       )}
 
       {isConnected && !isCorrectNetwork && (
         <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600">
+          <ShieldAlert className="mr-2 inline h-4 w-4" />
           Connected wallet is on the wrong network. Switch to Sepolia.
         </div>
       )}

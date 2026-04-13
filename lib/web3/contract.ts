@@ -9,7 +9,7 @@ import {
   getSigner,
   toTokenUnits,
 } from "./client"
-import { DEMO_WALLET_LIST } from "@/lib/demo-wallets"
+// import { DEMO_WALLET_LIST } from "@/lib/demo-wallets"
 import type {
   BlockedTransferEvent,
   BurnEvent,
@@ -68,6 +68,34 @@ async function getContractWithSigner(): Promise<Contract> {
 
 function normalizeAddress(address?: string | null): string {
   return (address ?? "").trim().toLowerCase()
+}
+
+function uniqueAddresses(addresses: string[]): string[] {
+  return Array.from(
+    new Set(
+      addresses
+        .map((addr) => normalizeAddress(addr))
+        .filter((addr) => addr && addr !== "0x0000000000000000000000000000000000000000")
+    )
+  )
+}
+
+async function getObservedWalletAddresses(): Promise<string[]> {
+  const [transfers, mints, burns, whitelistEvents] = await Promise.all([
+    getTransferEvents(),
+    getMintEvents(),
+    getBurnEvents(),
+    getWhitelistEvents(),
+  ])
+
+  const addresses = [
+    ...transfers.flatMap((e) => [e.from, e.to]),
+    ...mints.map((e) => e.to),
+    ...burns.map((e) => e.from),
+    ...whitelistEvents.map((e) => e.wallet),
+  ]
+
+  return uniqueAddresses(addresses)
 }
 
 function deriveProfileLabel(roles: RoleStatus, whitelisted: boolean): string {
@@ -467,25 +495,22 @@ export async function getWalletDistribution(): Promise<WalletDistributionRow[]> 
   const totalSupplyRaw = await getTotalSupply()
   const totalSupply = Number(totalSupplyRaw || "0")
 
-  const configuredWallets = DEMO_WALLET_LIST.filter((wallet) => {
-    const addr = wallet.address?.trim()
-    return !!addr && addr.startsWith("0x") && !addr.includes("REPLACE_WITH_REAL_WALLET")
-  })
+  const observedAddresses = await getObservedWalletAddresses()
 
   const rows = await Promise.all(
-    configuredWallets.map(async (wallet) => {
+    observedAddresses.map(async (walletAddress) => {
       const [balance, whitelisted] = await Promise.all([
-        getBalanceOf(wallet.address),
-        isWhitelisted(wallet.address),
+        getBalanceOf(walletAddress),
+        isWhitelisted(walletAddress),
       ])
 
       const balanceNum = Number(balance || "0")
       const percentage = totalSupply > 0 ? (balanceNum / totalSupply) * 100 : 0
 
       return {
-        key: wallet.key ?? wallet.address,
-        label: wallet.label,
-        address: wallet.address,
+        key: walletAddress,
+        label: walletAddress,
+        address: walletAddress,
         balance,
         isWhitelisted: whitelisted,
         percentage,
@@ -494,6 +519,8 @@ export async function getWalletDistribution(): Promise<WalletDistributionRow[]> 
   )
 
   return rows
+    .filter((row) => Number(row.balance) > 0 || row.isWhitelisted)
+    .sort((a, b) => b.percentage - a.percentage)
 }
 
 export async function getActiveWhitelistedWalletCount(): Promise<number> {
