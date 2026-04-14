@@ -6,37 +6,56 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useWallet } from "@/hooks/use-wallet"
-import { getOwner, getTokenName, getTokenSymbol } from "@/lib/web3/contract"
+import { getRoleStatuses, getTokenName, getTokenSymbol } from "@/lib/web3/contract"
 import { getContractConfig, formatAddress, getExplorerAddressUrl } from "@/lib/web3/client"
-import { 
-  FileCheck, 
-  Building2, 
-  Globe, 
-  Users, 
-  TrendingUp, 
-  Store,
-  Banknote,
-  BarChart3,
-  ExternalLink,
+import type { RoleStatus } from "@/types/ethereum"
+import {
+  FileCheck,
   Wallet,
-  FileCode,
+  Globe,
+  ExternalLink,
   CheckCircle,
-  XCircle
+  XCircle,
+  Shield,
+  FileCode,
 } from "lucide-react"
 
-interface ContractMetadata {
-  name: string
-  symbol: string
-  owner: string
+interface ProductComplianceData {
+  tokenName: string
+  tokenSymbol: string
+  adminWallet: string
+  adminRoles: RoleStatus | null
+}
+
+function RoleBadge({
+  label,
+  active,
+}: {
+  label: string
+  active: boolean
+}) {
+  return (
+    <Badge
+      variant={active ? "default" : "outline"}
+      className={
+        active
+          ? "bg-primary/15 text-primary border-primary/30"
+          : "border-border text-muted-foreground"
+      }
+    >
+      {label}
+    </Badge>
+  )
 }
 
 export default function ProductCompliancePage() {
   const { isConnected, address, isCorrectNetwork, chainId } = useWallet()
-  const [metadata, setMetadata] = useState<ContractMetadata | null>(null)
+  const [data, setData] = useState<ProductComplianceData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
-  // Get contract config safely
-  let contractConfig: { address: string; networkName: string; chainId: number; explorerUrl: string } | null = null
+  let contractConfig: { address: string; networkName: string; chainId: number; explorerUrl: string } | null =
+    null
+
   try {
     contractConfig = getContractConfig()
   } catch {
@@ -44,57 +63,61 @@ export default function ProductCompliancePage() {
   }
 
   useEffect(() => {
-    async function fetchMetadata() {
-      if (!isConnected || !isCorrectNetwork) {
-        setMetadata(null)
-        return
-      }
-
+    async function load() {
       setIsLoading(true)
+
       try {
-        const [name, symbol, owner] = await Promise.all([
-          getTokenName(),
-          getTokenSymbol(),
-          getOwner(),
+        const adminWallet = process.env.NEXT_PUBLIC_ADMIN_ADDRESS || ""
+
+        const [tokenName, tokenSymbol, adminRoles] = await Promise.all([
+          getTokenName().catch(() => "GCORE Token"),
+          getTokenSymbol().catch(() => "GCORE"),
+          adminWallet ? getRoleStatuses(adminWallet).catch(() => null) : Promise.resolve(null),
         ])
-        setMetadata({ name, symbol, owner })
+
+        setData({
+          tokenName,
+          tokenSymbol,
+          adminWallet,
+          adminRoles,
+        })
       } catch (err) {
-        console.error("Error fetching metadata:", err)
+        console.error("Failed to load product/compliance data:", err)
+        setData({
+          tokenName: "GCORE Token",
+          tokenSymbol: "GCORE",
+          adminWallet: process.env.NEXT_PUBLIC_ADMIN_ADDRESS || "",
+          adminRoles: null,
+        })
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchMetadata()
-  }, [isConnected, isCorrectNetwork])
+    load()
+  }, [])
 
   return (
-    <DashboardLayout 
-      title="Product & Compliance" 
-      description="Token specifications and regulatory compliance information"
+    <DashboardLayout
+      title="Product & Compliance"
+      description="Minimal product specification and compliance model overview"
     >
-      {/* Contract Status */}
       <Card className="mb-6 border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-              <FileCode className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Contract Status</CardTitle>
-              <CardDescription>Live contract and connection status</CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-lg">Live Contract Status</CardTitle>
+          <CardDescription>
+            Lightweight view of the deployed token and current configuration
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="mb-2 flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Wallet Connected</span>
+                <span className="text-xs text-muted-foreground">Wallet</span>
               </div>
               {isConnected ? (
-                <Badge className="bg-primary/20 text-primary border-primary/30">
+                <Badge className="bg-primary/15 text-primary border-primary/30">
                   <CheckCircle className="mr-1 h-3 w-3" />
                   Connected
                 </Badge>
@@ -104,290 +127,209 @@ export default function ProductCompliancePage() {
                   Disconnected
                 </Badge>
               )}
+              <div className="mt-2 text-xs text-muted-foreground">
+                {address ? formatAddress(address, 8) : "No wallet connected"}
+              </div>
             </div>
 
             <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="mb-2 flex items-center gap-2">
                 <Globe className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">Network</span>
               </div>
-              <p className="text-sm font-medium text-foreground">
+              <div className="text-sm font-medium text-foreground">
                 {contractConfig?.networkName || "Not configured"}
-              </p>
-              {chainId && (
-                <p className="text-xs text-muted-foreground mt-1">Chain ID: {chainId}</p>
-              )}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {chainId ? `Connected Chain ID: ${chainId}` : "No active chain"}
+              </div>
+              <div className="mt-2">
+                {isConnected ? (
+                  isCorrectNetwork ? (
+                    <Badge className="bg-primary/15 text-primary border-primary/30">Correct Network</Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-amber-500/30 text-amber-600">
+                      Wrong Network
+                    </Badge>
+                  )
+                ) : null}
+              </div>
             </div>
 
             <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="mb-2 flex items-center gap-2">
                 <FileCode className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Contract Address</span>
+                <span className="text-xs text-muted-foreground">Contract</span>
               </div>
               {contractConfig ? (
                 <a
                   href={`${contractConfig.explorerUrl}/address/${contractConfig.address}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-mono text-primary hover:underline flex items-center gap-1"
+                  className="flex items-center gap-1 text-sm font-mono text-primary hover:underline"
                 >
                   {formatAddress(contractConfig.address, 8)}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ) : (
-                <p className="text-sm text-muted-foreground">Not configured</p>
+                <span className="text-sm text-muted-foreground">Not configured</span>
               )}
             </div>
 
             <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Contract Owner</span>
+              <div className="mb-2 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Admin Wallet</span>
               </div>
               {isLoading ? (
-                <Skeleton className="h-5 w-32" />
-              ) : metadata ? (
+                <Skeleton className="h-5 w-28" />
+              ) : data?.adminWallet ? (
                 <a
-                  href={getExplorerAddressUrl(metadata.owner)}
+                  href={getExplorerAddressUrl(data.adminWallet)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-mono text-primary hover:underline flex items-center gap-1"
+                  className="flex items-center gap-1 text-sm font-mono text-primary hover:underline"
                 >
-                  {formatAddress(metadata.owner, 8)}
+                  {formatAddress(data.adminWallet, 8)}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               ) : (
-                <p className="text-sm text-muted-foreground">Connect wallet</p>
+                <span className="text-sm text-muted-foreground">Not configured</span>
               )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Product Details */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-border">
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-                <FileCheck className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Token Specification</CardTitle>
-                <CardDescription>GCORE token product details</CardDescription>
-              </div>
-            </div>
+            <CardTitle className="text-base">Product Summary</CardTitle>
+            <CardDescription>Minimal token and structure overview</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <FileCheck className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Token Name</span>
-                </div>
-                {isLoading ? (
-                  <Skeleton className="h-5 w-24" />
-                ) : (
-                  <span className="text-sm font-medium text-foreground">
-                    {metadata?.name || "GCORE Token"}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <FileCheck className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Symbol</span>
-                </div>
-                {isLoading ? (
-                  <Skeleton className="h-5 w-16" />
-                ) : (
-                  <Badge variant="outline" className="border-primary text-primary">
-                    {metadata?.symbol || "GCORE"}
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Underlying Asset</span>
-                </div>
-                <span className="text-sm font-medium text-foreground">GRN.SI</span>
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <FileCheck className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Token Type</span>
-                </div>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Name</span>
+              {isLoading ? (
+                <Skeleton className="h-5 w-24" />
+              ) : (
+                <span className="text-sm font-medium text-foreground">
+                  {data?.tokenName || "GCORE Token"}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Symbol</span>
+              {isLoading ? (
+                <Skeleton className="h-5 w-16" />
+              ) : (
                 <Badge variant="outline" className="border-primary text-primary">
-                  Security Token
+                  {data?.tokenSymbol || "GCORE"}
                 </Badge>
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Jurisdiction</span>
-                </div>
-                <span className="text-sm font-medium text-foreground">Singapore (MAS)</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Investor Type</span>
-                </div>
-                <Badge className="bg-amber-500/20 text-amber-400 hover:bg-amber-500/30">
-                  Accredited Only
-                </Badge>
-              </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Underlying Asset</span>
+              <span className="text-sm font-medium text-foreground">UOB APAC Green REIT ETF (GRN.SI)</span>
+            </div>
+
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Token Standard</span>
+              <span className="text-sm font-medium text-foreground">ERC20-compatible</span>
+            </div>
+
+            <div className="flex items-center justify-between border-b border-border py-3">
+              <span className="text-sm text-muted-foreground">Structure</span>
+              <span className="text-sm font-medium text-foreground">1:1 digital twin wrapper</span>
+            </div>
+
+            <div className="flex items-center justify-between py-3">
+              <span className="text-sm text-muted-foreground">Investor Frame</span>
+              <Badge className="bg-amber-500/20 text-amber-500 hover:bg-amber-500/30">
+                Eligible / accredited
+              </Badge>
             </div>
           </CardContent>
         </Card>
 
         <Card className="border-border">
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-                <Building2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Regulatory Framework</CardTitle>
-                <CardDescription>Compliance and licensing</CardDescription>
-              </div>
-            </div>
+            <CardTitle className="text-base">Compliance Model</CardTitle>
+            <CardDescription>Matches the current smart-contract design</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <h4 className="text-sm font-medium text-foreground mb-2">MAS Licensed Operator</h4>
-                <p className="text-xs text-muted-foreground">
-                  GCORE operates under the Monetary Authority of Singapore regulatory framework for digital payment token services.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Custody</p>
-                  <p className="text-sm font-medium text-foreground">Qualified Custodian</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Audit</p>
-                  <p className="text-sm font-medium text-foreground">Big 4 Audited</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-1">AML/KYC</p>
-                  <p className="text-sm font-medium text-primary">Mandatory</p>
-                </div>
-                <div className="rounded-lg border border-border p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Reporting</p>
-                  <p className="text-sm font-medium text-foreground">Quarterly</p>
-                </div>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Access Model</div>
+              <p className="text-xs text-muted-foreground">
+                GCORE uses wallet-based identity and AccessControl roles rather than a simple owner-only model.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Transfer Control</div>
+              <p className="text-xs text-muted-foreground">
+                Transfers are intended to be restricted to approved wallets through whitelist enforcement and blocked-transfer logic.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Lifecycle Controls</div>
+              <p className="text-xs text-muted-foreground">
+                Minting and burning are controlled functions intended to mirror off-chain subscription and redemption activity.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border p-4">
+              <div className="mb-2 text-sm font-medium text-foreground">Administrative Roles</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <RoleBadge label="DEFAULT_ADMIN_ROLE" active={!!data?.adminRoles?.defaultAdmin} />
+                <RoleBadge label="OPERATOR_ROLE" active={!!data?.adminRoles?.operator} />
+                <RoleBadge label="COMPLIANCE_ROLE" active={!!data?.adminRoles?.compliance} />
+                <RoleBadge label="ORACLE_ROLE" active={!!data?.adminRoles?.oracle} />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Market Structure */}
       <Card className="mt-6 border-border">
         <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-              <Store className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-lg">Market Structure</CardTitle>
-              <CardDescription>Primary and secondary market details</CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-base">What This Page Covers</CardTitle>
+          <CardDescription>Kept intentionally lightweight for demo stability</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-6 lg:grid-cols-4">
-            <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Banknote className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">Primary Market</span>
-              </div>
-              <p className="text-lg font-semibold text-foreground mb-1">Mint via Subscription</p>
-              <p className="text-xs text-muted-foreground">
-                New tokens issued through regulated subscription process
-              </p>
-            </div>
-            <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">Secondary Market</span>
-              </div>
-              <p className="text-lg font-semibold text-foreground mb-1">P2P (Whitelisted)</p>
-              <p className="text-xs text-muted-foreground">
-                Peer-to-peer transfers between KYC-verified wallets only
-              </p>
-            </div>
-            <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <BarChart3 className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">Pricing</span>
-              </div>
-              <p className="text-lg font-semibold text-foreground mb-1">ETF-Linked</p>
-              <p className="text-xs text-muted-foreground">
-                Token price tracks underlying GRN.SI ETF NAV
-              </p>
-            </div>
-            <div className="rounded-lg border border-border p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">Liquidity</span>
-              </div>
-              <p className="text-lg font-semibold text-foreground mb-1">Market Maker</p>
-              <p className="text-xs text-muted-foreground">
-                Designated market maker provides continuous liquidity
-              </p>
-            </div>
+        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-border p-4">
+            <FileCheck className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Product Identity</div>
+            <p className="text-xs text-muted-foreground">
+              Token name, symbol, structure, and underlying asset.
+            </p>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Compliance Checklist */}
-      <Card className="mt-6 border-border">
-        <CardHeader>
-          <CardTitle className="text-lg">Compliance Requirements</CardTitle>
-          <CardDescription>Investor eligibility and transfer requirements</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                1
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">Identity Verification</p>
-                <p className="text-xs text-muted-foreground mt-1">Full KYC documentation required</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                2
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">Accreditation Check</p>
-                <p className="text-xs text-muted-foreground mt-1">Proof of accredited investor status</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                3
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">Wallet Whitelisting</p>
-                <p className="text-xs text-muted-foreground mt-1">Only approved wallets can hold tokens</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                4
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">AML Screening</p>
-                <p className="text-xs text-muted-foreground mt-1">Continuous monitoring for compliance</p>
-              </div>
-            </div>
+          <div className="rounded-lg border border-border p-4">
+            <Shield className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Compliance Logic</div>
+            <p className="text-xs text-muted-foreground">
+              Role-based admin model plus whitelist-based transfer restrictions.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-border p-4">
+            <Wallet className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Wallet-Native Access</div>
+            <p className="text-xs text-muted-foreground">
+              Connected wallet determines access instead of password-based profiles.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-border p-4">
+            <Globe className="mb-3 h-5 w-5 text-primary" />
+            <div className="mb-1 text-sm font-medium text-foreground">Demo Context</div>
+            <p className="text-xs text-muted-foreground">
+              Suitable for the project dashboard without adding heavy runtime dependencies.
+            </p>
           </div>
         </CardContent>
       </Card>

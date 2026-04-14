@@ -1,484 +1,533 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { useWallet } from "@/hooks/use-wallet"
-import { isWhitelisted, setWhitelistStatus } from "@/lib/web3/contract"
-import { getExplorerTxUrl, getExplorerAddressUrl } from "@/lib/web3/client"
-import { 
-  Shield, 
-  Plus, 
-  CheckCircle, 
-  XCircle, 
-  UserX, 
-  Search, 
-  Loader2, 
+import {
+  getCurrentWhitelistState,
+  getRoleStatuses,
+  isWhitelisted,
+  setWhitelistStatus,
+} from "@/lib/web3/contract"
+import {
+  getSavedWallets,
+  findSavedWallet,
+  type SavedWalletEntry,
+} from "@/lib/wallet-registry"
+import { formatAddress, getExplorerAddressUrl } from "@/lib/web3/client"
+import type { RoleStatus } from "@/types/ethereum"
+import {
+  Shield,
+  CheckCircle,
+  XCircle,
   ExternalLink,
-  AlertTriangle 
+  Search,
+  Wallet,
+  Globe,
+  Lock,
 } from "lucide-react"
 
-type TxStatus = "idle" | "submitting" | "confirming" | "confirmed" | "failed"
-
-interface TxResult {
-  status: TxStatus
-  message: string
-  txHash?: string
+interface WhitelistRow {
+  address: string
+  status: boolean
+  lastBlock: number
+  txHash: string
 }
 
-interface WhitelistCheckResult {
-  address: string
-  isWhitelisted: boolean
-  checkedAt: Date
+function isValidAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim())
 }
 
 export default function WhitelistPage() {
-  const { isConnected, isCorrectNetwork } = useWallet()
-  
-  // Add wallet state
-  const [newAddress, setNewAddress] = useState("")
-  const [addResult, setAddResult] = useState<TxResult | null>(null)
-  
-  // Check wallet state
-  const [checkAddress, setCheckAddress] = useState("")
-  const [checkResult, setCheckResult] = useState<WhitelistCheckResult | null>(null)
-  const [isChecking, setIsChecking] = useState(false)
-  
-  // Remove wallet state
-  const [removeAddress, setRemoveAddress] = useState("")
-  const [removeResult, setRemoveResult] = useState<TxResult | null>(null)
+  const { isConnected, address, isCorrectNetwork } = useWallet()
 
-  // Recent checks history (in-memory)
-  const [recentChecks, setRecentChecks] = useState<WhitelistCheckResult[]>([])
+  const [viewerRoles, setViewerRoles] = useState<RoleStatus | null>(null)
+  const [rows, setRows] = useState<WhitelistRow[]>([])
+  const [rowsLoading, setRowsLoading] = useState(false)
 
-  const handleAddWallet = async () => {
-    if (!newAddress || !isConnected || !isCorrectNetwork) return
-    
-    setAddResult({ status: "submitting", message: "Submitting transaction..." })
-    
+  const [savedWallets, setSavedWallets] = useState<SavedWalletEntry[]>([])
+
+  const [targetWallet, setTargetWallet] = useState("")
+  const [targetStatus, setTargetStatus] = useState<boolean | null>(null)
+  const [targetLoading, setTargetLoading] = useState(false)
+
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const canManageWhitelist = !!viewerRoles?.defaultAdmin || !!viewerRoles?.compliance
+
+  const connectedProfileLabel = useMemo(() => {
+    if (!viewerRoles) return "Disconnected / unavailable"
+    if (viewerRoles.defaultAdmin) return "Super Admin"
+    if (viewerRoles.compliance) return "Compliance Admin"
+    if (viewerRoles.operator) return "Operations Admin"
+    if (viewerRoles.oracle) return "Oracle Admin"
+    return "Read-only wallet"
+  }, [viewerRoles])
+
+  const savedWalletInfo = useMemo(() => {
+    return targetWallet ? findSavedWallet(targetWallet) : null
+  }, [targetWallet])
+
+  async function loadViewerRoles() {
+    if (!address || !isConnected || !isCorrectNetwork) {
+      setViewerRoles(null)
+      return
+    }
+
     try {
-      const tx = await setWhitelistStatus(newAddress, true)
-      setAddResult({ 
-        status: "confirming", 
-        message: "Waiting for confirmation...",
-        txHash: tx.hash 
-      })
-      
-      await tx.wait()
-      setAddResult({ 
-        status: "confirmed", 
-        message: `Wallet ${newAddress.slice(0, 10)}... has been whitelisted`,
-        txHash: tx.hash 
-      })
-      setNewAddress("")
+      const roles = await getRoleStatuses(address)
+      setViewerRoles(roles)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Transaction failed"
-      setAddResult({ status: "failed", message })
+      console.error("Failed to load viewer roles:", err)
+      setViewerRoles(null)
     }
   }
 
-  const handleCheckWallet = async () => {
-    if (!checkAddress) return
-    
-    setIsChecking(true)
-    setCheckResult(null)
-    
+  async function loadWhitelistState() {
+    setRowsLoading(true)
     try {
-      const whitelisted = await isWhitelisted(checkAddress)
-      const result: WhitelistCheckResult = {
-        address: checkAddress,
-        isWhitelisted: whitelisted,
-        checkedAt: new Date(),
-      }
-      setCheckResult(result)
-      setRecentChecks(prev => [result, ...prev.slice(0, 4)])
+      const currentState = await getCurrentWhitelistState()
+      setRows(currentState)
     } catch (err) {
-      console.error("Error checking whitelist:", err)
+      console.error("Failed to load whitelist state:", err)
+      setRows([])
     } finally {
-      setIsChecking(false)
+      setRowsLoading(false)
     }
   }
 
-  const handleRemoveWallet = async () => {
-    if (!removeAddress || !isConnected || !isCorrectNetwork) return
-    
-    setRemoveResult({ status: "submitting", message: "Submitting transaction..." })
-    
+  async function lookupWallet(wallet: string) {
+    const trimmed = wallet.trim()
+
+    if (!trimmed) {
+      setError("Enter a wallet address.")
+      setTargetStatus(null)
+      return
+    }
+
+    if (!isValidAddress(trimmed)) {
+      setError("Enter a valid wallet address.")
+      setTargetStatus(null)
+      return
+    }
+
+    setTargetLoading(true)
+    setError(null)
+    setFeedback(null)
+
     try {
-      const tx = await setWhitelistStatus(removeAddress, false)
-      setRemoveResult({ 
-        status: "confirming", 
-        message: "Waiting for confirmation...",
-        txHash: tx.hash 
-      })
-      
-      await tx.wait()
-      setRemoveResult({ 
-        status: "confirmed", 
-        message: `Wallet ${removeAddress.slice(0, 10)}... has been removed from whitelist`,
-        txHash: tx.hash 
-      })
-      setRemoveAddress("")
+      const status = await isWhitelisted(trimmed)
+      setTargetStatus(status)
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Transaction failed"
-      setRemoveResult({ status: "failed", message })
+      console.error("Failed to lookup wallet:", err)
+      setTargetStatus(null)
+      setError("Failed to check whitelist status.")
+    } finally {
+      setTargetLoading(false)
     }
   }
 
-  const isAddDisabled = !isConnected || !isCorrectNetwork || !newAddress || addResult?.status === "submitting" || addResult?.status === "confirming"
-  const isRemoveDisabled = !isConnected || !isCorrectNetwork || !removeAddress || removeResult?.status === "submitting" || removeResult?.status === "confirming"
+  async function handleSetWhitelist(status: boolean) {
+    const trimmed = targetWallet.trim()
+
+    if (!trimmed) {
+      setError("Enter a wallet address first.")
+      return
+    }
+
+    if (!isValidAddress(trimmed)) {
+      setError("Enter a valid wallet address.")
+      return
+    }
+
+    setIsSubmitting(true)
+    setError(null)
+    setFeedback(null)
+
+    try {
+      const tx = await setWhitelistStatus(trimmed, status)
+      setFeedback(
+        `${status ? "Adding wallet to" : "Removing wallet from"} whitelist. Waiting for confirmation: ${tx.hash}`
+      )
+      await tx.wait()
+      setFeedback("Whitelist updated successfully.")
+      setTargetStatus(status)
+      await loadWhitelistState()
+    } catch (err: any) {
+      console.error("Whitelist update failed:", err)
+      setError(err?.message || "Failed to update whitelist.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  useEffect(() => {
+    loadViewerRoles()
+  }, [address, isConnected, isCorrectNetwork])
+
+  useEffect(() => {
+    loadWhitelistState()
+    setSavedWallets(getSavedWallets())
+  }, [])
 
   return (
-    <DashboardLayout 
-      title="Whitelist" 
-      description="Manage KYC-verified wallet addresses"
+    <DashboardLayout
+      title="Whitelist"
+      description="Wallet eligibility and whitelist administration"
     >
-      {/* Connection Warning */}
-      {(!isConnected || !isCorrectNetwork) && (
-        <Card className="mb-6 border-amber-500/30 bg-amber-500/10">
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
+      <Card className="mb-6 border-white/10 bg-card/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+        <CardHeader>
+          <CardTitle className="text-lg">Whitelist Access Status</CardTitle>
+          <CardDescription>
+            Wallet-based access control for whitelist administration
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Connected Wallet</span>
+              </div>
+              <div className="text-sm font-medium text-foreground">
+                {address ? formatAddress(address, 8) : "Not connected"}
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {!isConnected ? "Wallet not connected" : "Wrong network"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {!isConnected 
-                  ? "Connect your wallet to manage the whitelist (owner only)" 
-                  : "Please switch to the correct network"
-                }
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Check Whitelist Status */}
-        <Card className="border-border">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-                <Search className="h-5 w-5 text-primary" />
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Network</span>
               </div>
-              <div>
-                <CardTitle className="text-lg">Check Whitelist Status</CardTitle>
-                <CardDescription>Verify if a wallet is whitelisted</CardDescription>
+              <div className="text-sm font-medium text-foreground">
+                {isConnected ? (isCorrectNetwork ? "Sepolia" : "Wrong network") : "Not connected"}
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="check-address">Wallet Address</Label>
-              <Input
-                id="check-address"
-                placeholder="0x..."
-                value={checkAddress}
-                onChange={(e) => setCheckAddress(e.target.value)}
-              />
+
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Lock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Profile</span>
+              </div>
+              <div className="text-sm font-medium text-foreground">{connectedProfileLabel}</div>
             </div>
-            <Button 
-              onClick={handleCheckWallet}
-              disabled={!checkAddress || isChecking}
-              className="w-full"
-              variant="secondary"
-            >
-              {isChecking ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Checking...
-                </>
+
+            <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Whitelist Permissions</span>
+              </div>
+              {canManageWhitelist ? (
+                <Badge className="border-primary/30 bg-primary/15 text-primary">
+                  Can Manage
+                </Badge>
               ) : (
-                <>
-                  <Search className="mr-2 h-4 w-4" />
-                  Check Status
-                </>
-              )}
-            </Button>
-            
-            {checkResult && (
-              <div className={`flex items-center gap-3 rounded-lg p-4 ${
-                checkResult.isWhitelisted 
-                  ? "bg-primary/10 border border-primary/30" 
-                  : "bg-destructive/10 border border-destructive/30"
-              }`}>
-                {checkResult.isWhitelisted ? (
-                  <CheckCircle className="h-5 w-5 text-primary shrink-0" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-destructive shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${
-                    checkResult.isWhitelisted ? "text-primary" : "text-destructive"
-                  }`}>
-                    {checkResult.isWhitelisted ? "Whitelisted" : "Not Whitelisted"}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono truncate">
-                    {checkResult.address}
-                  </p>
-                </div>
-                <a
-                  href={getExplorerAddressUrl(checkResult.address)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground"
+                <Badge
+                  variant="outline"
+                  className="border-white/10 bg-background/60 text-muted-foreground"
                 >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Add Wallet */}
-        <Card className="border-border">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-                <Plus className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Add to Whitelist</CardTitle>
-                <CardDescription>Approve a wallet for token transfers</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="add-address">Wallet Address</Label>
-              <Input
-                id="add-address"
-                placeholder="0x..."
-                value={newAddress}
-                onChange={(e) => setNewAddress(e.target.value)}
-                disabled={!isConnected || !isCorrectNetwork}
-              />
-            </div>
-            <Button 
-              onClick={handleAddWallet}
-              disabled={isAddDisabled}
-              className="w-full"
-            >
-              {addResult?.status === "submitting" || addResult?.status === "confirming" ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {addResult.status === "submitting" ? "Submitting..." : "Confirming..."}
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add to Whitelist
-                </>
+                  Read-only
+                </Badge>
               )}
-            </Button>
-            <TxResultDisplay result={addResult} />
-          </CardContent>
-        </Card>
-
-        {/* Remove Wallet */}
-        <Card className="border-border">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-destructive/20">
-                <UserX className="h-5 w-5 text-destructive" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Remove from Whitelist</CardTitle>
-                <CardDescription>Block a wallet from token transfers</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="remove-address">Wallet Address</Label>
-              <Input
-                id="remove-address"
-                placeholder="0x..."
-                value={removeAddress}
-                onChange={(e) => setRemoveAddress(e.target.value)}
-                disabled={!isConnected || !isCorrectNetwork}
-              />
-            </div>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button 
-                  disabled={isRemoveDisabled}
-                  className="w-full"
-                  variant="destructive"
-                >
-                  {removeResult?.status === "submitting" || removeResult?.status === "confirming" ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {removeResult.status === "submitting" ? "Submitting..." : "Confirming..."}
-                    </>
-                  ) : (
-                    <>
-                      <UserX className="mr-2 h-4 w-4" />
-                      Remove from Whitelist
-                    </>
-                  )}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="bg-card border-border">
-                <AlertDialogHeader>
-                  <AlertDialogTitle className="text-foreground">Remove this wallet?</AlertDialogTitle>
-                  <AlertDialogDescription className="text-muted-foreground">
-                    This will prevent the wallet from receiving or transferring tokens. 
-                    The wallet can be re-added later if needed.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="border-border">Cancel</AlertDialogCancel>
-                  <AlertDialogAction 
-                    onClick={handleRemoveWallet}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Remove Wallet
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <TxResultDisplay result={removeResult} />
-          </CardContent>
-        </Card>
-
-        {/* Recent Checks */}
-        <Card className="border-border">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                <Shield className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Recent Checks</CardTitle>
-                <CardDescription>Recently verified addresses</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {recentChecks.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-sm text-muted-foreground">No recent checks</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {recentChecks.map((check, i) => (
-                  <div 
-                    key={`${check.address}-${i}`}
-                    className="flex items-center justify-between rounded-lg border border-border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      {check.isWhitelisted ? (
-                        <CheckCircle className="h-4 w-4 text-primary" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-destructive" />
-                      )}
-                      <span className="text-sm font-mono">
-                        {check.address.slice(0, 10)}...{check.address.slice(-6)}
-                      </span>
-                    </div>
-                    <Badge 
-                      variant="outline" 
-                      className={check.isWhitelisted 
-                        ? "border-primary/30 bg-primary/10 text-primary" 
-                        : "border-destructive/30 bg-destructive/10 text-destructive"
-                      }
-                    >
-                      {check.isWhitelisted ? "Approved" : "Not Listed"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Info Panel */}
-      <Card className="mt-6 border-border">
-        <CardContent className="p-6">
-          <h3 className="text-base font-medium text-foreground">Why Whitelist?</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            The whitelist ensures compliance with KYC (Know Your Customer) regulations. 
-            Only verified wallet addresses can participate in token transactions, 
-            maintaining regulatory compliance and protecting all token holders.
-          </p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-lg bg-muted p-4">
-              <p className="text-sm font-medium text-foreground">Compliance Benefits</p>
-              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                <li>- KYC/AML verification</li>
-                <li>- Regulatory adherence</li>
-                <li>- Fraud prevention</li>
-              </ul>
-            </div>
-            <div className="rounded-lg bg-muted p-4">
-              <p className="text-sm font-medium text-foreground">Security Features</p>
-              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                <li>- Controlled token flow</li>
-                <li>- Audit trail</li>
-                <li>- Instant blocking capability</li>
-              </ul>
             </div>
           </div>
+
+          {viewerRoles && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge
+                variant={viewerRoles.defaultAdmin ? "default" : "outline"}
+                className={
+                  viewerRoles.defaultAdmin
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
+              >
+                DEFAULT_ADMIN_ROLE
+              </Badge>
+              <Badge
+                variant={viewerRoles.compliance ? "default" : "outline"}
+                className={
+                  viewerRoles.compliance
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
+              >
+                COMPLIANCE_ROLE
+              </Badge>
+              <Badge
+                variant={viewerRoles.operator ? "default" : "outline"}
+                className={
+                  viewerRoles.operator
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
+              >
+                OPERATOR_ROLE
+              </Badge>
+              <Badge
+                variant={viewerRoles.oracle ? "default" : "outline"}
+                className={
+                  viewerRoles.oracle
+                    ? "border-primary/30 bg-primary/15 text-primary"
+                    : "border-white/10 bg-background/60 text-muted-foreground"
+                }
+              >
+                ORACLE_ROLE
+              </Badge>
+            </div>
+          )}
         </CardContent>
       </Card>
-    </DashboardLayout>
-  )
-}
 
-function TxResultDisplay({ result }: { result: TxResult | null }) {
-  if (!result) return null
+      <div className="grid gap-6 lg:grid-cols-2 [&>div]:border-white/10 [&>div]:bg-card/85 [&>div]:shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Wallet Lookup</CardTitle>
+            <CardDescription>
+              Check whether a wallet is currently whitelisted
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {savedWallets.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Quick fill from saved wallets</div>
+                <div className="flex flex-wrap gap-2">
+                  {savedWallets.map((wallet) => (
+                    <Button
+                      key={wallet.address}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => {
+                        setTargetWallet(wallet.address)
+                        lookupWallet(wallet.address)
+                      }}
+                    >
+                      {wallet.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-  const statusConfig = {
-    idle: { bg: "bg-muted", text: "text-muted-foreground" },
-    submitting: { bg: "bg-primary/10", text: "text-primary" },
-    confirming: { bg: "bg-primary/10", text: "text-primary" },
-    confirmed: { bg: "bg-primary/10", text: "text-primary" },
-    failed: { bg: "bg-destructive/10", text: "text-destructive" },
-  }
+            <div className="flex gap-3">
+              <Input
+                placeholder="Enter wallet address"
+                value={targetWallet}
+                onChange={(e) => setTargetWallet(e.target.value)}
+                className="font-mono"
+              />
+              <Button
+                className="rounded-xl font-semibold"
+                onClick={() => lookupWallet(targetWallet)}
+                disabled={targetLoading}
+              >
+                <Search className="mr-2 h-4 w-4" />
+                {targetLoading ? "Checking..." : "Check"}
+              </Button>
+            </div>
 
-  const config = statusConfig[result.status]
+            {targetWallet.trim() && (
+              <div className="rounded-xl border border-white/10 bg-background/40 p-4">
+                <div className="mb-2 text-xs text-muted-foreground">Target Wallet</div>
+                <div className="break-all font-mono text-sm text-foreground">{targetWallet}</div>
 
-  return (
-    <div className={`flex items-start gap-2 rounded-lg p-3 ${config.bg} ${config.text}`}>
-      {result.status === "submitting" || result.status === "confirming" ? (
-        <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" />
-      ) : result.status === "confirmed" ? (
-        <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
-      ) : result.status === "failed" ? (
-        <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
-      ) : null}
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium block">{result.message}</span>
-        {result.txHash && (
-          <a 
-            href={getExplorerTxUrl(result.txHash)} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-xs flex items-center gap-1 mt-1 hover:underline"
-          >
-            View transaction <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
+                {savedWalletInfo && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Saved as: {savedWalletInfo.label}
+                    {savedWalletInfo.intendedRole ? ` • ${savedWalletInfo.intendedRole}` : ""}
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center gap-2">
+                  {targetLoading ? (
+                    <Skeleton className="h-6 w-28" />
+                  ) : targetStatus === null ? (
+                    <Badge
+                      variant="outline"
+                      className="border-white/10 bg-background/60 text-muted-foreground"
+                    >
+                      No status loaded
+                    </Badge>
+                  ) : targetStatus ? (
+                    <Badge className="border-primary/30 bg-primary/15 text-primary">
+                      <CheckCircle className="mr-1 h-3 w-3" />
+                      Whitelisted
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-amber-500/30 text-amber-600">
+                      <XCircle className="mr-1 h-3 w-3" />
+                      Not Whitelisted
+                    </Badge>
+                  )}
+                </div>
+
+                {isValidAddress(targetWallet.trim()) && (
+                  <a
+                    href={getExplorerAddressUrl(targetWallet.trim())}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    View wallet on explorer
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {canManageWhitelist ? (
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  className="rounded-xl font-semibold"
+                  onClick={() => handleSetWhitelist(true)}
+                  disabled={isSubmitting || !isConnected || !isCorrectNetwork}
+                >
+                  Add to Whitelist
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="rounded-xl font-semibold"
+                  onClick={() => handleSetWhitelist(false)}
+                  disabled={isSubmitting || !isConnected || !isCorrectNetwork}
+                >
+                  Remove from Whitelist
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-md border border-white/10 bg-background/40 p-3 text-sm text-muted-foreground">
+                Requires COMPLIANCE_ROLE or DEFAULT_ADMIN_ROLE to update whitelist status.
+              </div>
+            )}
+
+            {feedback && (
+              <div className="rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
+                {feedback}
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Whitelist Rules</CardTitle>
+            <CardDescription>
+              How whitelist controls are used in the token lifecycle
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
+              Only approved wallets should be able to receive or hold tokens.
+            </div>
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
+              Whitelist status is part of the compliance-by-design model.
+            </div>
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
+              Blocked transfers should appear when tokens are sent to ineligible wallets.
+            </div>
+            <div className="rounded-md border border-white/10 bg-background/40 p-3">
+              Compliance or super-admin wallets should manage whitelist updates.
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </div>
+
+      <Card className="mt-6 border-white/10 bg-card/85 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]">
+        <CardHeader>
+          <CardTitle className="text-base">Current Whitelist State</CardTitle>
+          <CardDescription>
+            Latest observed whitelist status by wallet from on-chain events
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {rowsLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="rounded-md border border-white/10 bg-background/40 p-4 text-sm text-muted-foreground">
+              No whitelist events found yet.
+            </div>
+          ) : (
+            rows.map((row) => {
+              const saved = findSavedWallet(row.address)
+              return (
+                <div
+                  key={`${row.address}-${row.lastBlock}`}
+                  className="flex flex-col gap-3 rounded-xl border border-white/10 bg-background/40 p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <div className="font-mono text-sm text-foreground">{row.address}</div>
+                    {saved && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {saved.label}
+                        {saved.intendedRole ? ` • ${saved.intendedRole}` : ""}
+                      </div>
+                    )}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Last block: {row.lastBlock}
+                    </div>
+                    <a
+                      href={getExplorerAddressUrl(row.address)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      View wallet
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+
+                  <div className="text-right">
+                    {row.status ? (
+                      <Badge className="border-primary/30 bg-primary/15 text-primary">
+                        <CheckCircle className="mr-1 h-3 w-3" />
+                        Whitelisted
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-amber-500/30 text-amber-600">
+                        <XCircle className="mr-1 h-3 w-3" />
+                        Not Whitelisted
+                      </Badge>
+                    )}
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Tx: {formatAddress(row.txHash, 8)}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </CardContent>
+      </Card>
+
+      {!isConnected && (
+        <div className="mt-6 rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          Connect MetaMask to manage whitelist status. Read-only whitelist history is still available.
+        </div>
+      )}
+
+      {isConnected && !isCorrectNetwork && (
+        <div className="mt-6 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600">
+          Connected wallet is on the wrong network. Switch to Sepolia.
+        </div>
+      )}
+    </DashboardLayout>
   )
 }
