@@ -72,13 +72,35 @@ export function getReadProvider(): JsonRpcProvider | BrowserProvider | null {
   return getRpcProvider() ?? getBrowserProvider()
 }
 
+import { ethers } from "ethers"
+
 export async function getSigner(): Promise<JsonRpcSigner | null> {
-  const provider = getBrowserProvider()
-  if (!provider) return null
+  if (typeof window === "undefined") return null
+
+  const ethereum = (window as any).ethereum
+
+  if (!ethereum) {
+    alert("No wallet detected. Please install MetaMask.")
+    return null
+  }
+
+  // 🔥 FORCE METAMASK ONLY
+  if (!ethereum.isMetaMask) {
+    alert("Please use MetaMask for this application.")
+    return null
+  }
 
   try {
-    return await provider.getSigner()
-  } catch {
+    const provider = new ethers.BrowserProvider(ethereum)
+
+    // 🔥 IMPORTANT: request connection (this was missing before)
+    await provider.send("eth_requestAccounts", [])
+
+    const signer = await provider.getSigner()
+
+    return signer
+  } catch (err) {
+    console.error("Failed to get signer:", err)
     return null
   }
 }

@@ -47,15 +47,10 @@ async function getContractReadOnly(): Promise<Contract> {
       return new Contract(config.address, GCORE_TOKEN_ABI, provider)
     }
   } catch (err) {
-    console.warn("Read provider unavailable, falling back to signer/provider:", err)
+    console.warn("Read provider unavailable:", err)
   }
 
-  const signer = await getSigner()
-  if (signer) {
-    return new Contract(config.address, GCORE_TOKEN_ABI, signer)
-  }
-
-  throw new Error("No read provider or signer available")
+  throw new Error("No read provider available")
 }
 
 async function getContractWithSigner(): Promise<Contract> {
@@ -297,12 +292,20 @@ export async function attemptOperatorTransfer(
   return await contract.attemptTransfer(from, to, toTokenUnits(amount))
 }
 
-export async function setWhitelistStatus(
-  address: string,
-  status: boolean
-): Promise<ContractTransactionResponse> {
+export async function setWhitelistStatus(address: string, status: boolean) {
+  console.log("👉 Getting contract with signer...")
+
   const contract = await getContractWithSigner()
-  return await contract.setWhitelist(address, status)
+
+  if (!contract) {
+    throw new Error("Contract not available")
+  }
+
+  console.log("👉 Sending transaction...")
+
+  const tx = await contract.setWhitelist(address, status)
+
+  return tx
 }
 
 async function getEventRange() {
@@ -311,7 +314,13 @@ async function getEventRange() {
     if (!provider) throw new Error("Read provider not available")
 
     const latest = await provider.getBlockNumber()
-    const start = getContractConfig().startBlock || Math.max(0, latest - 50000)
+
+    const configStart = getContractConfig().startBlock || latest
+
+    // 🔥 HARD LIMIT (Alchemy free tier)
+    const RANGE = 5
+
+    const start = Math.max(configStart, latest - RANGE)
 
     return { start, latest }
   } catch (err) {

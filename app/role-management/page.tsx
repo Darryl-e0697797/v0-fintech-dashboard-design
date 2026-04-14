@@ -324,17 +324,43 @@ export default function RoleManagementPage() {
     setIsSubmitting(true)
 
     try {
-      const tx = await setWhitelistStatus(trimmed, status)
+      console.log("👉 Step 1: Start")
+
+      // 🔥 ADD THIS BLOCK HERE
+      const contract = await getContractWithSigner()
+
+      if (!contract) {
+        alert("Please connect wallet and try again")
+        return
+      }
+
+      console.log("✅ Contract ready")
+
+      const tx = await contract.setWhitelist(trimmed, status)
+
+      console.log("🚀 TX SENT:", tx.hash)
+
       setFeedback(
         `${status ? "Adding wallet to whitelist" : "Removing wallet from whitelist"}... (${tx.hash})`
       )
+
       await tx.wait()
 
       setFeedback("Whitelist updated successfully.")
+
       await loadWalletProfile(trimmed)
+
     } catch (err) {
       console.error(err)
-      setError("Failed to update whitelist status.")
+
+      // Handle user rejection properly
+      if (err.code === 4001) {
+        setError("Transaction rejected by user.")
+      } else if (err?.message?.includes("insufficient funds")) {
+        setError("Insufficient funds to perform this action.")
+      } else {
+        setError("Failed to update whitelist status.")
+      }
     } finally {
       setIsSubmitting(false)
     }
