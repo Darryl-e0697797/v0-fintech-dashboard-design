@@ -1,5 +1,4 @@
 import { Eip1193Provider } from "ethers"
-import type { DemoProfileKey } from "@/lib/demo-wallets"
 
 declare global {
   interface Window {
@@ -33,11 +32,6 @@ export interface WalletState {
   address: string | null
   chainId: number | null
   isCorrectNetwork: boolean
-  currentProfile: DemoProfileKey
-  expectedProfileAddress: string | null
-  connectedLabel: string | null
-  isProfileMatch: boolean
-  nativeBalance: string | null
 }
 
 export interface TransferEvent {
@@ -93,7 +87,7 @@ export interface UnifiedActivityRow {
 }
 
 export interface WalletDistributionRow {
-  key: DemoProfileKey
+  key: string
   label: string
   address: string
   balance: string
