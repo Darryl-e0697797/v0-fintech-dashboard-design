@@ -308,16 +308,17 @@ export async function setWhitelistStatus(address: string, status: boolean) {
   return tx
 }
 
-const CHUNK_SIZE = 2000  // Alchemy free tier max blocks per eth_getLogs
-const CHUNK_DELAY_MS = 150 // pause between chunks to stay under rate limit
-
 async function getEventRange() {
   try {
     const provider = getReadProvider()
     if (!provider) throw new Error("Read provider not available")
 
     const latest = await provider.getBlockNumber()
-    const start = getContractConfig().startBlock || 0
+    const configStart = getContractConfig().startBlock || latest
+
+    // Keep range small to stay within Alchemy free tier limits
+    const RANGE = 5
+    const start = Math.max(configStart, latest - RANGE)
 
     return { start, latest }
   } catch (err) {
@@ -326,60 +327,12 @@ async function getEventRange() {
   }
 }
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms))
-}
-
-async function queryFilterChunked(
-  contract: Contract,
-  filter: any,
-  fromBlock: number,
-  toBlock: number,
-): Promise<any[]> {
-  if (fromBlock === 0 && toBlock === 0) return []
-
-  const results: any[] = []
-
-  for (let start = fromBlock; start <= toBlock; start += CHUNK_SIZE) {
-    const end = Math.min(start + CHUNK_SIZE - 1, toBlock)
-
-    // Retry once on 429
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const chunk = await contract.queryFilter(filter, start, end)
-        results.push(...chunk)
-        break
-      } catch (err: any) {
-        const is429 =
-          err?.error?.code === 429 ||
-          err?.code === 429 ||
-          err?.message?.includes("429") ||
-          err?.message?.includes("compute units")
-
-        if (is429 && attempt === 0) {
-          await sleep(1000) // back off 1s before retry
-          continue
-        }
-        console.warn(`Skipping blocks ${start}-${end}:`, err?.shortMessage ?? err?.message ?? err)
-        break
-      }
-    }
-
-    // Throttle between chunks
-    if (start + CHUNK_SIZE <= toBlock) {
-      await sleep(CHUNK_DELAY_MS)
-    }
-  }
-
-  return results
-}
-
 export async function getTransferEvents(): Promise<TransferEvent[]> {
   try {
     const contract = await getContractReadOnly()
     const { start, latest } = await getEventRange()
     const filter = contract.filters.Transfer()
-    const events = await queryFilterChunked(contract, filter, start, latest)
+    const events = await contract.queryFilter(filter, start, latest)
 
     return events.map((event: any) => ({
       from: event.args[0],
@@ -399,7 +352,7 @@ export async function getMintEvents(): Promise<MintEvent[]> {
     const contract = await getContractReadOnly()
     const { start, latest } = await getEventRange()
     const filter = contract.filters.TokensMinted()
-    const events = await queryFilterChunked(contract, filter, start, latest)
+    const events = await contract.queryFilter(filter, start, latest)
 
     return events.map((event: any) => ({
       to: event.args[0],
@@ -419,7 +372,7 @@ export async function getBurnEvents(): Promise<BurnEvent[]> {
     const contract = await getContractReadOnly()
     const { start, latest } = await getEventRange()
     const filter = contract.filters.TokensBurned()
-    const events = await queryFilterChunked(contract, filter, start, latest)
+    const events = await contract.queryFilter(filter, start, latest)
 
     return events.map((event: any) => ({
       from: event.args[0],
@@ -439,7 +392,7 @@ export async function getBlockedTransferEvents(): Promise<BlockedTransferEvent[]
     const contract = await getContractReadOnly()
     const { start, latest } = await getEventRange()
     const filter = contract.filters.TransferBlocked()
-    const events = await queryFilterChunked(contract, filter, start, latest)
+    const events = await contract.queryFilter(filter, start, latest)
 
     return events.map((event: any) => ({
       from: event.args[0],
@@ -460,7 +413,7 @@ export async function getWhitelistEvents(): Promise<WhitelistEvent[]> {
     const contract = await getContractReadOnly()
     const { start, latest } = await getEventRange()
     const filter = contract.filters.Whitelisted()
-    const events = await queryFilterChunked(contract, filter, start, latest)
+    const events = await contract.queryFilter(filter, start, latest)
 
     return events.map((event: any) => ({
       wallet: event.args[0],
@@ -476,11 +429,12 @@ export async function getWhitelistEvents(): Promise<WhitelistEvent[]> {
 
 export async function getUnifiedTransactions(): Promise<UnifiedActivityRow[]> {
   try {
-    // Sequential fetching to stay within Alchemy free-tier rate limits
-    const mints = await getMintEvents()
-    const burns = await getBurnEvents()
-    const transfers = await getTransferEvents()
-    const blocked = await getBlockedTransferEvents()
+    const [transfers, blocked, mints, burns] = await Promise.all([
+      getTransferEvents(),
+      getBlockedTransferEvents(),
+      getMintEvents(),
+      getBurnEvents(),
+    ])
 
     const rows: UnifiedActivityRow[] = [
       ...mints.map((e) => ({
