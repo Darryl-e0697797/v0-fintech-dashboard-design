@@ -308,7 +308,8 @@ export async function setWhitelistStatus(address: string, status: boolean) {
   return tx
 }
 
-const CHUNK_SIZE = 2000 // Alchemy free tier max blocks per eth_getLogs request
+const CHUNK_SIZE = 2000  // Alchemy free tier max blocks per eth_getLogs
+const CHUNK_DELAY_MS = 150 // pause between chunks to stay under rate limit
 
 async function getEventRange() {
   try {
@@ -325,21 +326,48 @@ async function getEventRange() {
   }
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
 async function queryFilterChunked(
   contract: Contract,
   filter: any,
   fromBlock: number,
   toBlock: number,
 ): Promise<any[]> {
+  if (fromBlock === 0 && toBlock === 0) return []
+
   const results: any[] = []
 
   for (let start = fromBlock; start <= toBlock; start += CHUNK_SIZE) {
     const end = Math.min(start + CHUNK_SIZE - 1, toBlock)
-    try {
-      const chunk = await contract.queryFilter(filter, start, end)
-      results.push(...chunk)
-    } catch (err) {
-      console.warn(`Failed to fetch events for blocks ${start}-${end}:`, err)
+
+    // Retry once on 429
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const chunk = await contract.queryFilter(filter, start, end)
+        results.push(...chunk)
+        break
+      } catch (err: any) {
+        const is429 =
+          err?.error?.code === 429 ||
+          err?.code === 429 ||
+          err?.message?.includes("429") ||
+          err?.message?.includes("compute units")
+
+        if (is429 && attempt === 0) {
+          await sleep(1000) // back off 1s before retry
+          continue
+        }
+        console.warn(`Skipping blocks ${start}-${end}:`, err?.shortMessage ?? err?.message ?? err)
+        break
+      }
+    }
+
+    // Throttle between chunks
+    if (start + CHUNK_SIZE <= toBlock) {
+      await sleep(CHUNK_DELAY_MS)
     }
   }
 
@@ -448,12 +476,11 @@ export async function getWhitelistEvents(): Promise<WhitelistEvent[]> {
 
 export async function getUnifiedTransactions(): Promise<UnifiedActivityRow[]> {
   try {
-    const [transfers, blocked, mints, burns] = await Promise.all([
-      getTransferEvents(),
-      getBlockedTransferEvents(),
-      getMintEvents(),
-      getBurnEvents(),
-    ])
+    // Sequential fetching to stay within Alchemy free-tier rate limits
+    const mints = await getMintEvents()
+    const burns = await getBurnEvents()
+    const transfers = await getTransferEvents()
+    const blocked = await getBlockedTransferEvents()
 
     const rows: UnifiedActivityRow[] = [
       ...mints.map((e) => ({
